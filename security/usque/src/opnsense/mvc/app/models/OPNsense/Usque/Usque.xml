@@ -30,8 +30,8 @@
             </role>
             <interface type="TextField">
                 <Required>Y</Required>
-                <Mask>/^usque[0-9]{1,3}$/</Mask>
-                <ValidationMessage>Use an interface name from usque0 through usque999.</ValidationMessage>
+                <Mask>/^tun[0-9]{1,3}$/</Mask>
+                <ValidationMessage>Use an unused FreeBSD TUN interface name from tun0 through tun999.</ValidationMessage>
             </interface>
             <team type="TextField">
                 <Mask>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/</Mask>

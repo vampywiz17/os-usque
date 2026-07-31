@@ -26,7 +26,7 @@
         <id>tunnel.interface</id>
         <label>TUN interface</label>
         <type>text</type>
-        <help>OPNsense-owned native TUN interface name, for example usque0.</help>
+        <help>Unused native FreeBSD TUN interface name required by tun-rs, for example tun0. OPNsense may assign a separate descriptive name.</help>
     </field>
     <field>
         <id>tunnel.team</id>

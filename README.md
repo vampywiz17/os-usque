@@ -84,7 +84,7 @@ The current foundation contains:
 - an MVC model for global settings and multiple role-separated instances;
 - menu and ACL declarations;
 - a native tunnel CRUD page and browser-assisted egress enrollment workflow;
-- native plugin registration for future `usqueN` TUN interfaces;
+- native FreeBSD `tunN` interfaces discovered by the OPNsense core;
 - pinned OPNsense 26.7 validation and packaging helpers;
 - a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.7.0.
 

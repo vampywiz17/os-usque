@@ -15,7 +15,7 @@
 - one supervised process per enabled tunnel instance;
 - root-only runtime credential files;
 - service lifecycle and status presentation;
-- registration of `usqueN` devices with OPNsense;
+- use of native FreeBSD `tunN` devices already recognized by OPNsense core;
 - integration with the native interface, gateway, routing, firewall and NAT
   subsystems;
 - the standard FreeBSD port that builds the unmodified tunnel engine.
@@ -28,8 +28,8 @@ FreeBSD Cargo framework.
 
 ## Instance model
 
-Every instance has an OPNsense UUID, a unique display name, a unique `usqueN`
-interface name and exactly one role:
+Every instance has an OPNsense UUID, a unique display name, a unique native
+FreeBSD `tunN` interface name and exactly one role:
 
 - `client` for egress;
 - `mesh-node` for ingress.
@@ -55,7 +55,7 @@ state and log paths remain service-lifecycle design targets.
 2. Jinja templates materialize bounded per-instance runtime inputs.
 3. Configd exposes fixed privileged actions.
 4. An rc.d-compatible supervisor starts one process per enabled instance.
-5. Plugin device registration exposes `usqueN` interfaces to OPNsense.
+5. OPNsense core discovers the native FreeBSD `tunN` interfaces.
 6. OPNsense core handles assignment, gateway, policy routing, firewall and NAT.
 
 No controller may interpolate unvalidated values into a shell command. Configd
