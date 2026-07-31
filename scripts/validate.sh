@@ -29,6 +29,12 @@ grep -q '^USES=.*cargo' "${port_dir}/Makefile" ||
     fail "FreeBSD port must use the ports cargo framework"
 grep -Eq '^GH_TAGNAME=.*[0-9a-f]{40}$' "${port_dir}/Makefile" ||
     fail "FreeBSD port source must be pinned to a full Git commit"
+grep -q '^PLIST_FILES=.*bin/usque-nativetun' "${port_dir}/Makefile" ||
+    fail "FreeBSD port must install usque-nativetun under /usr/local/bin"
+grep -q 'BINARY = Path("/usr/local/bin/usque-nativetun")' \
+    "${plugin_dir}/src/opnsense/scripts/OPNsense/Usque/enrollment.py" ||
+    fail "enrollment worker binary path does not match the FreeBSD port"
+
 
 find "${repo_dir}" -path "${repo_dir}/.build" -prune -o \
     -type f -name '*.sh' -exec sh -n {} \;

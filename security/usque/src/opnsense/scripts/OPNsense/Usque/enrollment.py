@@ -13,7 +13,7 @@ import tempfile
 import time
 from pathlib import Path
 
-BINARY = Path("/usr/local/sbin/usque-nativetun")
+BINARY = Path("/usr/local/bin/usque-nativetun")
 CONFIG_DIR = Path("/usr/local/etc/usque/instances")
 STATE_DIR = Path("/var/run/usque/enrollment")
 SPOOL_DIR = Path("/var/tmp")
