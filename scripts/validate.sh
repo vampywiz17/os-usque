@@ -44,6 +44,20 @@ grep -q "'configurable' => false" "${device_hook}" ||
 grep -q "'names' => \$names" "${device_hook}" ||
     fail "device hook must publish configured instances to Assignments"
 
+settings_api="${plugin_dir}/src/opnsense/mvc/app/controllers/OPNsense/Usque/Api/SettingsController.php"
+grep -Fq "getModel()->general->getNodes()" "${settings_api}" ||
+    fail "general settings must use singleton model access"
+if grep -Fq "getBase('general'" "${settings_api}"; then
+    fail "general settings must not use array-item getBase access"
+fi
+
+service_view="${plugin_dir}/src/opnsense/mvc/app/views/OPNsense/Usque/index.volt"
+grep -Fq "{{ lang._('Apply changes') }}" "${service_view}" ||
+    fail "service reconcile action must use state-neutral wording"
+if grep -Fqi 'Apply and start tunnels' "${service_view}"; then
+    fail "service reconcile action must not imply start-only behavior"
+fi
+
 find "${repo_dir}" -path "${repo_dir}/.build" -prune -o \
     -type f -name '*.sh' -exec sh -n {} \;
 

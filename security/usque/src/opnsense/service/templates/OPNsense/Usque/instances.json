@@ -1,0 +1,16 @@
+{
+  "enabled": {{ "true" if not helpers.empty('OPNsense.usque.general.enabled') else "false" }},
+  "instances": [
+{% if helpers.exists('OPNsense.usque.tunnels.tunnel') %}
+{%   for tunnel in helpers.toList('OPNsense.usque.tunnels.tunnel') %}
+    {
+      "id": {{ tunnel['@uuid'] | tojson }},
+      "enabled": {{ "true" if tunnel.enabled == '1' else "false" }},
+      "name": {{ tunnel.name | tojson }},
+      "role": {{ tunnel.role | tojson }},
+      "interface": {{ tunnel.interface | tojson }}
+    }{{ "," if not loop.last else "" }}
+{%   endfor %}
+{% endif %}
+  ]
+}

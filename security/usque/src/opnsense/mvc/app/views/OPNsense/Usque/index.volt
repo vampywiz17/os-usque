@@ -57,6 +57,7 @@
     }
 
     $(document).ready(function() {
+        mapDataToFormUI({'frm_general_settings': '/api/usque/settings/get_general'});
         const grid = $("#{{ formGridTunnel['table_id'] }}").UIBootgrid({
             search: "/api/usque/settings/search_tunnel/",
             get: "/api/usque/settings/get_tunnel/",
@@ -123,10 +124,30 @@
         $("#enrollmentDialog").on("hidden.bs.modal", function() {
             $("#enrollmentToken").val("");
         });
+
+        $("#applyService").click(function() {
+            const button = $(this);
+            saveFormToEndpoint("/api/usque/settings/set_general", "frm_general_settings", function() {
+                button.prop("disabled", true);
+                $("#applyServiceProgress").addClass("fa fa-spinner fa-pulse");
+                ajaxCall("/api/usque/service/reconfigure", {}, function(response, status) {
+                    button.prop("disabled", false);
+                    $("#applyServiceProgress").removeClass("fa fa-spinner fa-pulse");
+                    if (status !== "success" || response.status !== "ok") {
+                        BootstrapDialog.show({
+                            type: BootstrapDialog.TYPE_DANGER,
+                            title: "{{ lang._('usque service') }}",
+                            message: response.message || response.response || "{{ lang._('Unable to apply the tunnel configuration.') }}"
+                        });
+                    }
+                });
+            });
+        });
     });
 </script>
 
 <div class="content-box">
+    {{ partial('layout_partials/base_form', ['fields': formGeneral, 'id': 'frm_general_settings']) }}
     <div class="col-md-12">
         <h2>{{ lang._('usque tunnels') }}</h2>
         <p>
@@ -135,6 +156,11 @@
         <button id="registerClient" class="btn btn-primary" type="button" disabled>
             <i class="fa fa-cloud-upload"></i>
             {{ lang._('Register selected egress client') }}
+        </button>
+        <button id="applyService" class="btn btn-primary" type="button">
+            <i class="fa fa-check"></i>
+            {{ lang._('Apply changes') }}
+            <i id="applyServiceProgress"></i>
         </button>
     </div>
     <div class="col-md-12">

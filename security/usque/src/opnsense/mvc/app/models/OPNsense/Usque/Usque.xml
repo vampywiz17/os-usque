@@ -1,11 +1,11 @@
 <model>
     <mount>//OPNsense/usque</mount>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
     <description>usque tunnel settings</description>
     <items>
         <general>
             <enabled type="BooleanField">
-                <Default>0</Default>
+                <Default>1</Default>
                 <Required>Y</Required>
             </enabled>
         </general>
@@ -19,6 +19,12 @@
                 <Required>Y</Required>
                 <Mask>/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/</Mask>
                 <ValidationMessage>Use 1-64 letters, numbers, dots, underscores or dashes.</ValidationMessage>
+                <Constraints>
+                    <check001>
+                        <ValidationMessage>Tunnel names must be unique.</ValidationMessage>
+                        <type>UniqueConstraint</type>
+                    </check001>
+                </Constraints>
             </name>
             <role type="OptionField">
                 <Required>Y</Required>
@@ -33,6 +39,12 @@
                 <Mask>/^tun[0-9]{1,3}$/</Mask>
                 <ValidationMessage>Use an unused FreeBSD TUN interface name from tun0 through tun999.</ValidationMessage>
             </interface>
+                <Constraints>
+                    <check001>
+                        <ValidationMessage>Each TUN interface may be used by only one tunnel.</ValidationMessage>
+                        <type>UniqueConstraint</type>
+                    </check001>
+                </Constraints>
             <team type="TextField">
                 <Mask>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/</Mask>
                 <ValidationMessage>Use the Cloudflare team subdomain only.</ValidationMessage>

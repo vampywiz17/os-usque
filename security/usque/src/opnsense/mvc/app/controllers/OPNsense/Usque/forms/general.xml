@@ -1,0 +1,8 @@
+<form>
+    <field>
+        <id>general.enabled</id>
+        <label>Enable usque service</label>
+        <type>checkbox</type>
+        <help>Start enabled, registered tunnel instances when configuration is applied and during system boot.</help>
+    </field>
+</form>

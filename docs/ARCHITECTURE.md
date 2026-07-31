@@ -38,27 +38,43 @@ FreeBSD `tunN` interface name and exactly one role:
 Separate configuration and state directories prevent one instance from
 overwriting or controlling another. Both roles may run concurrently.
 
-## Planned runtime layout
+## Runtime layout
 
 ```text
 /usr/local/etc/usque/instances/<uuid>.json   mode 0600
-/var/run/usque/<uuid>.pid
-/var/run/usque/<uuid>.state.json
-/var/log/usque/<uuid>.log
+/usr/local/etc/usque/instances.json           non-secret generated manifest
+/var/run/usque/<uuid>.supervisor.pid          locked daemon(8) supervisor PID
+/var/run/usque/<uuid>.child.pid               locked Rust child PID
+syslog tag usque-tunN                         tunnel process output
 ```
 
-The instance configuration path is now created by egress enrollment. Process,
-state and log paths remain service-lifecycle design targets.
+The instance credential path is created by enrollment and is never copied into
+the OPNsense model or generated manifest. FreeBSD `daemon(8)` owns PID locking,
+crash supervision and syslog delivery; OPNsense owns boot ordering and
+configuration reconciliation through rc.d and configd.
 
 ## OPNsense layers
 
 1. MVC model and API validate persistent configuration.
 2. Jinja templates materialize bounded per-instance runtime inputs.
 3. Configd exposes fixed privileged actions.
-4. An rc.d-compatible supervisor starts one process per enabled instance.
+4. The rc.d service starts one `daemon(8)` supervisor per enabled instance.
 5. A device hook publishes configured `tunN` names to OPNsense while tun-rs
    remains the sole owner of device creation and addressing.
 6. OPNsense core handles assignment, gateway, policy routing, firewall and NAT.
+
+## TUN ownership and persistent assignments
+
+The lifecycle worker creates a root-owned mode-0600
+`/var/run/usque/<uuid>.state.json` before starting an instance. This records
+only the validated `tunN` name and is the authority required for cleanup. A
+stop first validates and terminates the recorded daemon supervisor and Rust
+child, then destroys only that owned cloned interface. Unsafe, missing or
+malformed state never authorizes destruction.
+
+OPNsense persists an interface assignment by device name independently of the
+kernel object's lifetime. The usque device hook continues publishing stable
+`tunN` names while stopped, matching WireGuard's volatile-device lifecycle.
 
 No controller may interpolate unvalidated values into a shell command. Configd
 parameters will be restricted to instance UUIDs and resolved server-side.

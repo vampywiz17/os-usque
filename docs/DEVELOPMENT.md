@@ -15,8 +15,8 @@ service dependency. A full OPNsense release build should use the official
 ## Portable checks
 
 `scripts/validate.sh` checks repository layout, the pinned Cargo port metadata,
-XML syntax, PHP syntax when PHP is installed, Python syntax when Python is
-installed, and POSIX shell syntax.
+XML syntax, PHP syntax when PHP is installed, Python syntax plus enrollment and
+service-lifecycle unit tests when Python is installed, and POSIX shell syntax.
 
 ## Framework checkouts
 
@@ -97,6 +97,18 @@ make package
 
 ## Full official build
 
+
+After installing a development package, restart configd so it discovers new
+actions, then use the GUI Apply action. Equivalent read-only status inspection:
+
+```sh
+service configd restart
+configctl usque status
+ps auxww | grep '[u]sque-nativetun'
+ifconfig tun0
+```
+
+Stop manually launched test binaries before letting the plugin own the same
 Follow the official `opnsense/tools` setup on a dedicated FreeBSD build host.
 Use `ABI=26.7`, place this plugin at `plugins/security/usque`, add
 `security/usque` to `config/26.7/plugins.conf.local`, and make the

@@ -17,7 +17,7 @@ interface and its standards-based QUIC/MASQUE data plane.
 
 > [!WARNING]
 > This repository is under active development. Enrollment is implemented, but
-> service lifecycle and routing integration are not production-ready.
+> service lifecycle is implemented, but routing integration is not production-ready.
 
 ## Repository boundary
 
@@ -86,12 +86,15 @@ The current foundation contains:
 - a native tunnel CRUD page and browser-assisted egress enrollment workflow;
 - configured native FreeBSD `tunN` interfaces published through the standard
   OPNsense virtual-device hook;
+- native rc.d/configd lifecycle management with one supervised FreeBSD
+  `daemon(8)` process per enabled instance;
+- an Apply action that renders runtime metadata and reconciles all instances;
 - pinned OPNsense 26.7 validation and packaging helpers;
 - a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.7.0.
 
-Service execution, Mesh enrollment UI, interface assignment automation and
-routing integration are not implemented yet. Egress enrollment already creates
-the root-only per-instance configuration consumed by those future layers.
+Mesh enrollment UI, interface assignment automation and routing integration
+are not implemented yet. Egress enrollment creates the root-only per-instance
+configuration consumed by the service layer.
 
 ## Independence and truthful operation
 
@@ -140,3 +143,35 @@ Cloudflare's custom protocol normally launches the official desktop client.
 OPNsense does not register or imitate that protocol handler; the one-time
 callback is pasted back manually. A fully automatic HTTPS callback should only
 be added if Cloudflare documents a third-party redirect mechanism.
+
+## Service lifecycle
+
+Enable the service and each registered instance, then choose **Apply changes**.
+The plugin renders a non-secret instance manifest and reconciles the
+running processes. Every instance is launched by FreeBSD `daemon(8)` with
+separate supervisor and child PID files, a five-second crash restart delay and
+the Rust client's own `--always-reconnect` transport recovery. Output is sent
+to the OPNsense system log under an instance-specific `usque-tunN` syslog tag.
+
+The generated manifest contains only UUIDs, names, roles and TUN interface
+names. Registration credentials remain in root-owned mode-0600 files under
+`/usr/local/etc/usque/instances`. The lifecycle worker revalidates ownership,
+permissions, link count, size, role, UUID and native `tunN` naming before a
+process is started.
+
+Stop any manually launched `usque-nativetun` process before applying the
+plugin configuration. An existing `tunN` interface without the plugin's
+private runtime ownership record is rejected rather than taken over. The
+service records each managed interface in a root-owned mode-0600 state file,
+stops its validated supervisor and child, and then destroys only that recorded
+cloned TUN device.
+
+OPNsense interface assignments are persistent configuration keyed by the
+stable `tunN` name. Destroying the runtime device during a stop does not delete
+its assignment; it is temporarily down and reconnects when tun-rs recreates
+the same name. This follows OPNsense's WireGuard lifecycle. Routes bound to the
+interface disappear while it is down. Gateway, policy-routing, firewall and
+NAT configuration remain explicit OPNsense administrator actions.
+
+Applying the configuration also writes `/etc/rc.conf.d/usque`, so enabled
+instances are restored by the normal FreeBSD rc order during boot.

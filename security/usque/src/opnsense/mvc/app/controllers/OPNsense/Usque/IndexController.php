@@ -36,6 +36,7 @@ class IndexController extends BaseIndexController
     {
         $this->view->pick('OPNsense/Usque/index');
         $this->view->formDialogTunnel = $this->getForm('dialogTunnel');
+        $this->view->formGeneral = $this->getForm('general');
         $this->view->formGridTunnel = $this->getFormGrid('dialogTunnel');
     }
 }

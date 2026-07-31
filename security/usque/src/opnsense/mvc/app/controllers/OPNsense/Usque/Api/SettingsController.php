@@ -29,9 +29,36 @@
 namespace OPNsense\Usque\Api;
 
 use OPNsense\Base\ApiMutableModelControllerBase;
+use OPNsense\Core\Config;
 
 class SettingsController extends ApiMutableModelControllerBase
 {
+
+    public function getGeneralAction()
+    {
+        if ($this->request->isGet()) {
+            return ['general' => $this->getModel()->general->getNodes()];
+        }
+        return [];
+    }
+
+    public function setGeneralAction()
+    {
+        $result = ['result' => 'failed'];
+        if ($this->request->isPost() && $this->request->hasPost('general')) {
+            Config::getInstance()->lock();
+            $node = $this->getModel()->general;
+            $node->setNodes($this->request->getPost('general'));
+            $result = $this->validate($node, 'general', true);
+            if (empty($result['validations'])) {
+                $this->setBaseHook($node);
+                return $this->save(false, true);
+            }
+            $result['result'] = 'failed';
+        }
+        return $result;
+    }
+
     protected static $internalModelName = 'usque';
     protected static $internalModelClass = '\OPNsense\Usque\Usque';
     protected static $internalModelUseSafeDelete = true;
