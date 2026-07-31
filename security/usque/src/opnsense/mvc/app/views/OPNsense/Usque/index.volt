@@ -2,15 +2,23 @@
     let enrollmentTunnel = null;
     let enrollmentPoll = null;
 
-    function selectedTunnel()
+    function selectedClientTunnel()
     {
-        const rows = $("#{{ formGridTunnel['table_id'] }}").bootgrid("getSelectedRows");
-        return rows.length === 1 ? rows[0] : null;
+        const grid = $("#{{ formGridTunnel['table_id'] }}");
+        const selected = grid.bootgrid("getSelectedRows");
+        if (selected.length !== 1) {
+            return null;
+        }
+        const selectedId = String(selected[0]);
+        const row = grid.bootgrid("getCurrentRows").find(function(candidate) {
+            return String(candidate.uuid) === selectedId;
+        });
+        return row !== undefined && row.role === "client" ? row.uuid : null;
     }
 
     function updateEnrollmentButton()
     {
-        $("#registerClient").prop("disabled", selectedTunnel() === null);
+        $("#registerClient").prop("disabled", selectedClientTunnel() === null);
     }
 
     function pollEnrollment(jobId)
@@ -40,7 +48,7 @@
             .on("loaded.rs.jquery.bootgrid", updateEnrollmentButton);
 
         $("#registerClient").click(function() {
-            enrollmentTunnel = selectedTunnel();
+            enrollmentTunnel = selectedClientTunnel();
             if (enrollmentTunnel === null) {
                 return;
             }

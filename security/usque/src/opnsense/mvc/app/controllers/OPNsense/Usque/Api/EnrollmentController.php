@@ -70,7 +70,10 @@ class EnrollmentController extends ApiControllerBase
             return ['status' => 'failed'];
         }
         $node = $this->getClientTunnel($uuid);
-        $team = $node === null ? '' : strtolower((string)$node->team);
+        if ($node === null) {
+            return ['status' => 'failed', 'message' => gettext('Select an egress client tunnel.')];
+        }
+        $team = strtolower((string)$node->team);
         if ($team === '' || preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $team) !== 1) {
             return ['status' => 'failed', 'message' => gettext('Configure a valid Cloudflare team name first.')];
         }
