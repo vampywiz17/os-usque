@@ -1,5 +1,5 @@
 PLUGIN_NAME=		usque
-PLUGIN_VERSION=		0.1
+PLUGIN_VERSION=		0.2
 PLUGIN_COMMENT=		Experimental usque MASQUE native TUN integration
 PLUGIN_DEPENDS=		usque-nativetun
 PLUGIN_MAINTAINER=	vampywiz17@users.noreply.github.com

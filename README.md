@@ -16,8 +16,8 @@ OPNsense. The Rust client remains responsible only for registration, the TUN
 interface and its standards-based QUIC/MASQUE data plane.
 
 > [!WARNING]
-> This repository is an early development scaffold. It does not yet start a
-> tunnel and must not be installed on a production firewall.
+> This repository is under active development. Enrollment is implemented, but
+> service lifecycle and routing integration are not production-ready.
 
 ## Repository boundary
 
@@ -83,14 +83,14 @@ The current foundation contains:
 - OPNsense-compatible package metadata;
 - an MVC model for global settings and multiple role-separated instances;
 - menu and ACL declarations;
-- a read-only foundation page;
+- a native tunnel CRUD page and browser-assisted egress enrollment workflow;
 - native plugin registration for future `usqueN` TUN interfaces;
 - pinned OPNsense 26.7 validation and packaging helpers;
 - a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.7.0.
 
-Service execution, credential enrollment, generated runtime configuration,
-interface assignment automation and routing integration are deliberately not
-implemented yet.
+Service execution, Mesh enrollment UI, interface assignment automation and
+routing integration are not implemented yet. Egress enrollment already creates
+the root-only per-instance configuration consumed by those future layers.
 
 ## Independence and truthful operation
 
@@ -108,3 +108,29 @@ that project's legal and protocol-source notices before enabling Mesh mode.
 The OPNsense plugin is licensed under the BSD 2-Clause License, matching the
 OPNsense plugin contribution requirement. The underlying Rust program remains
 under its own MIT license.
+
+## Browser-assisted egress enrollment
+
+The tunnel list stores only non-secret metadata, including the Cloudflare Zero
+Trust team subdomain. Registration follows the documented team enrollment flow:
+
+1. Select an egress client instance and open the generated
+   `https://<team>.cloudflareaccess.com/warp` URL.
+2. Authenticate using the organization's Cloudflare Access identity provider.
+3. Paste the resulting `com.cloudflare.warp://.../auth?token=...` callback URI
+   into the enrollment dialog.
+4. Explicitly accept the Cloudflare Application Terms and start registration.
+5. The UI polls a non-secret asynchronous job state until registration completes.
+
+The browser receives no device private key. The PHP controller writes the
+one-time token to a random owner-only handoff file and passes only random job
+and tunnel UUIDs to configd. The root worker claims that file with
+`O_NOFOLLOW`, validates type, link count, owner, mode, size and a five-minute
+TTL, deletes the handoff, and invokes `usque-nativetun --jwt-file`. Tokens are
+never stored in `config.xml`, command arguments, logs, state responses or the
+resulting plugin model. The per-instance Rust configuration is mode `0600`.
+
+Cloudflare's custom protocol normally launches the official desktop client.
+OPNsense does not register or imitate that protocol handler; the one-time
+callback is pasted back manually. A fully automatic HTTPS callback should only
+be added if Cloudflare documents a third-party redirect mechanism.

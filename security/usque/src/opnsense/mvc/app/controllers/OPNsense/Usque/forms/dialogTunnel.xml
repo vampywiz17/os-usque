@@ -1,0 +1,46 @@
+<form>
+    <field>
+        <id>tunnel.enabled</id>
+        <label>Enabled</label>
+        <type>checkbox</type>
+        <help>Enable this tunnel instance after registration and service configuration are complete.</help>
+        <grid_view>
+            <width>6em</width>
+            <type>boolean</type>
+            <formatter>rowtoggle</formatter>
+        </grid_view>
+    </field>
+    <field>
+        <id>tunnel.name</id>
+        <label>Name</label>
+        <type>text</type>
+        <help>Unique descriptive name for this tunnel instance.</help>
+    </field>
+    <field>
+        <id>tunnel.role</id>
+        <label>Role</label>
+        <type>dropdown</type>
+        <help>Egress client and ingress Mesh node registration remain separate.</help>
+    </field>
+    <field>
+        <id>tunnel.interface</id>
+        <label>TUN interface</label>
+        <type>text</type>
+        <help>OPNsense-owned native TUN interface name, for example usque0.</help>
+    </field>
+    <field>
+        <id>tunnel.team</id>
+        <label>Cloudflare team name</label>
+        <type>text</type>
+        <help>Zero Trust team subdomain without .cloudflareaccess.com. Required only for browser-assisted egress client enrollment.</help>
+    </field>
+    <field>
+        <id>tunnel.description</id>
+        <label>Description</label>
+        <type>text</type>
+        <help>Optional description.</help>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+</form>

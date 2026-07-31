@@ -46,8 +46,9 @@ else
 fi
 
 if command -v python3 >/dev/null 2>&1; then
-    find "${plugin_dir}/src" -type f -name '*.py' \
-        -exec python3 -m py_compile {} \;
+    find "${plugin_dir}/src" -type f -name '*.py' -exec \
+        python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' {} \;
+    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "${plugin_dir}/tests" -p 'test_*.py'
 fi
 
 if command -v git >/dev/null 2>&1 &&

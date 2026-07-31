@@ -46,7 +46,8 @@ overwriting or controlling another. Both roles may run concurrently.
 /var/log/usque/<uuid>.log
 ```
 
-These paths are design targets, not yet created by the scaffold.
+The instance configuration path is now created by egress enrollment. Process,
+state and log paths remain service-lifecycle design targets.
 
 ## OPNsense layers
 
@@ -68,3 +69,26 @@ running. The existing `usque-nativetun` connect/disconnect hooks may provide
 the first implementation. A small machine-readable runtime status interface
 may later be added to the Rust project if hooks cannot represent shutdown and
 reconnection accurately.
+
+## Enrollment privilege boundary
+
+Browser enrollment is intentionally split across three trust levels:
+
+```text
+authenticated MVC API (www)
+  -> random /var/tmp handoff (0600, token, <= 5 minutes)
+  -> configd action (job UUID + tunnel UUID only)
+  -> root enrollment worker
+  -> root-owned JWT file (0600)
+  -> usque-nativetun --jwt-file
+  -> /usr/local/etc/usque/instances/<uuid>.json (0600)
+```
+
+The worker opens the browser handoff with `O_NOFOLLOW`, validates its owner,
+mode, regular-file type, link count, size and age, then unlinks it regardless of
+success. State files contain only the job state, bounded diagnostics and the
+tunnel UUID. The callback token, registration access token and private P-256
+key are never returned through the plugin API.
+
+This workflow applies only to the `client` role. Mesh connector registration
+continues to use its separate Cloudflare-generated token-file workflow.

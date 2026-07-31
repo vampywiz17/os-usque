@@ -35,4 +35,37 @@ class SettingsController extends ApiMutableModelControllerBase
     protected static $internalModelName = 'usque';
     protected static $internalModelClass = '\OPNsense\Usque\Usque';
     protected static $internalModelUseSafeDelete = true;
+    public function searchTunnelAction()
+    {
+        return $this->searchBase(
+            'tunnels.tunnel',
+            ['enabled', 'name', 'role', 'interface', 'team', 'description'],
+            'name'
+        );
+    }
+
+    public function getTunnelAction($uuid = null)
+    {
+        return $this->getBase('tunnel', 'tunnels.tunnel', $uuid);
+    }
+
+    public function addTunnelAction()
+    {
+        return $this->addBase('tunnel', 'tunnels.tunnel');
+    }
+
+    public function setTunnelAction($uuid)
+    {
+        return $this->setBase('tunnel', 'tunnels.tunnel', $uuid);
+    }
+
+    public function delTunnelAction($uuid)
+    {
+        return $this->delBase('tunnels.tunnel', $uuid);
+    }
+
+    public function toggleTunnelAction($uuid, $enabled = null)
+    {
+        return $this->toggleBase('tunnels.tunnel', $uuid, $enabled);
+    }
 }
