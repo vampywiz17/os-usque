@@ -33,6 +33,39 @@ class EnrollmentController extends ApiControllerBase
         return $node;
     }
 
+    private function getRegistrationState($uuid)
+    {
+        try {
+            $response = trim(
+                (new Backend())->configdpRun('usque client_registration_status', [strtolower($uuid)])
+            );
+            $decoded = json_decode($response, true);
+        } catch (\Throwable $error) {
+            $decoded = null;
+        }
+
+        if (
+            !is_array($decoded) ||
+            !is_string($decoded['status'] ?? null) ||
+            !is_bool($decoded['registered'] ?? null) ||
+            !is_bool($decoded['can_register'] ?? null)
+        ) {
+            return [
+                'status' => 'failed',
+                'registered' => false,
+                'can_register' => false,
+                'message' => gettext('Unable to determine the client registration state.'),
+            ];
+        }
+
+        return [
+            'status' => $decoded['status'],
+            'registered' => $decoded['registered'],
+            'can_register' => $decoded['can_register'],
+            'message' => is_string($decoded['message'] ?? null) ? $decoded['message'] : '',
+        ];
+    }
+
     private function extractToken($input, $team)
     {
         if (!is_string($input) || strlen($input) > self::MAX_TOKEN_BYTES) {
@@ -64,6 +97,22 @@ class EnrollmentController extends ApiControllerBase
         return $input;
     }
 
+    public function registrationStatusAction($uuid)
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed', 'registered' => false, 'can_register' => false];
+        }
+        if ($this->getClientTunnel($uuid) === null) {
+            return [
+                'status' => 'failed',
+                'registered' => false,
+                'can_register' => false,
+                'message' => gettext('Select an egress client tunnel.'),
+            ];
+        }
+        return $this->getRegistrationState($uuid);
+    }
+
     public function loginUrlAction($uuid)
     {
         if (!$this->request->isPost()) {
@@ -92,6 +141,11 @@ class EnrollmentController extends ApiControllerBase
         if ($node === null) {
             return ['status' => 'failed', 'message' => gettext('Select an egress client tunnel.')];
         }
+        $registration = $this->getRegistrationState($uuid);
+        if (!$registration['can_register']) {
+            return ['status' => 'failed', 'message' => $registration['message']];
+        }
+
         if ((string)$this->request->getPost('accept_tos') !== '1') {
             return ['status' => 'failed', 'message' => gettext('Cloudflare Terms of Service must be accepted explicitly.')];
         }

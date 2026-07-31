@@ -35,6 +35,14 @@ grep -q 'BINARY = Path("/usr/local/bin/usque-nativetun")' \
     "${plugin_dir}/src/opnsense/scripts/OPNsense/Usque/enrollment.py" ||
     fail "enrollment worker binary path does not match the FreeBSD port"
 
+device_hook="${plugin_dir}/src/etc/inc/plugins.inc.d/usque.inc"
+[ -f "${device_hook}" ] || fail "missing OPNsense virtual-device hook"
+grep -Fq "'pattern' => '^tun[0-9]{1,3}$'" "${device_hook}" ||
+    fail "device hook must publish native FreeBSD tunN names"
+grep -q "'configurable' => false" "${device_hook}" ||
+    fail "tun-rs-owned interfaces must not be IP-configured by the device hook"
+grep -q "'names' => \$names" "${device_hook}" ||
+    fail "device hook must publish configured instances to Assignments"
 
 find "${repo_dir}" -path "${repo_dir}/.build" -prune -o \
     -type f -name '*.sh' -exec sh -n {} \;

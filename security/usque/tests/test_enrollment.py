@@ -73,6 +73,45 @@ class EnrollmentSecurityTests(unittest.TestCase):
         finally:
             path.unlink()
 
+    def test_registration_state_distinguishes_missing_and_valid_config(self):
+        tunnel_id = "12345678-1234-4234-8234-123456789abc"
+        missing = enrollment.inspect_registration(tunnel_id, os.getuid())
+        self.assertTrue(missing["can_register"])
+        self.assertFalse(missing["registered"])
+
+        self.config.mkdir()
+        path = self.config / f"{tunnel_id}.json"
+        path.write_text('{"role":"client","private_key":"not-returned"}', encoding="utf-8")
+        path.chmod(0o600)
+
+        registered = enrollment.inspect_registration(tunnel_id, os.getuid())
+        self.assertTrue(registered["registered"])
+        self.assertFalse(registered["can_register"])
+        self.assertNotIn("private_key", str(registered))
+
+    def test_registration_state_blocks_unsafe_config(self):
+        tunnel_id = "22345678-1234-4234-8234-123456789abc"
+        self.config.mkdir()
+        path = self.config / f"{tunnel_id}.json"
+        path.write_text('{"role":"client"}', encoding="utf-8")
+        path.chmod(0o640)
+
+        state = enrollment.inspect_registration(tunnel_id, os.getuid())
+        self.assertEqual(state["status"], "blocked")
+        self.assertFalse(state["registered"])
+        self.assertFalse(state["can_register"])
+
+    def test_registration_state_blocks_non_client_config(self):
+        tunnel_id = "32345678-1234-4234-8234-123456789abc"
+        self.config.mkdir()
+        path = self.config / f"{tunnel_id}.json"
+        path.write_text('{"role":"mesh-node"}', encoding="utf-8")
+        path.chmod(0o600)
+
+        state = enrollment.inspect_registration(tunnel_id, os.getuid())
+        self.assertEqual(state["status"], "blocked")
+        self.assertFalse(state["can_register"])
+
     def test_identifiers_are_strict(self):
         self.assertEqual(enrollment.validate_job_id("d" * 32), "d" * 32)
         self.assertEqual(

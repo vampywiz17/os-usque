@@ -15,7 +15,8 @@
 - one supervised process per enabled tunnel instance;
 - root-only runtime credential files;
 - service lifecycle and status presentation;
-- use of native FreeBSD `tunN` devices already recognized by OPNsense core;
+- publication of configured native FreeBSD `tunN` devices through the
+  standard OPNsense virtual-device API;
 - integration with the native interface, gateway, routing, firewall and NAT
   subsystems;
 - the standard FreeBSD port that builds the unmodified tunnel engine.
@@ -55,7 +56,8 @@ state and log paths remain service-lifecycle design targets.
 2. Jinja templates materialize bounded per-instance runtime inputs.
 3. Configd exposes fixed privileged actions.
 4. An rc.d-compatible supervisor starts one process per enabled instance.
-5. OPNsense core discovers the native FreeBSD `tunN` interfaces.
+5. A device hook publishes configured `tunN` names to OPNsense while tun-rs
+   remains the sole owner of device creation and addressing.
 6. OPNsense core handles assignment, gateway, policy routing, firewall and NAT.
 
 No controller may interpolate unvalidated values into a shell command. Configd
@@ -89,6 +91,11 @@ mode, regular-file type, link count, size and age, then unlinks it regardless of
 success. State files contain only the job state, bounded diagnostics and the
 tunnel UUID. The callback token, registration access token and private P-256
 key are never returned through the plugin API.
+
+Registration availability is also resolved by the root worker. It opens the
+per-instance configuration with `O_NOFOLLOW`, verifies owner-only metadata and
+the client role, and returns booleans only. The web process never reads or
+returns the credential-bearing JSON.
 
 This workflow applies only to the `client` role. Mesh connector registration
 continues to use its separate Cloudflare-generated token-file workflow.

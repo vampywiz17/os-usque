@@ -1,6 +1,7 @@
 <script>
     let enrollmentTunnel = null;
     let enrollmentPoll = null;
+    let enrollmentStateRequest = 0;
 
     function selectedClientTunnel()
     {
@@ -18,7 +19,28 @@
 
     function updateEnrollmentButton()
     {
-        $("#registerClient").prop("disabled", selectedClientTunnel() === null);
+        const requestId = ++enrollmentStateRequest;
+        const tunnelId = selectedClientTunnel();
+        const button = $("#registerClient");
+        button.prop("disabled", true).removeAttr("title");
+        if (tunnelId === null) {
+            return;
+        }
+
+        ajaxCall(
+            "/api/usque/enrollment/registration_status/" + tunnelId,
+            {},
+            function(response) {
+                if (requestId !== enrollmentStateRequest || selectedClientTunnel() !== tunnelId) {
+                    return;
+                }
+                const canRegister = response.status === "ok" && response.can_register === true;
+                button.prop("disabled", !canRegister);
+                if (!canRegister && response.message) {
+                    button.attr("title", response.message);
+                }
+            }
+        );
     }
 
     function pollEnrollment(jobId)
@@ -29,6 +51,7 @@
                 window.clearInterval(enrollmentPoll);
                 enrollmentPoll = null;
                 $("#enrollmentToken").val("");
+                updateEnrollmentButton();
             }
         });
     }

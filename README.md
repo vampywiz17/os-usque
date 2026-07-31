@@ -84,7 +84,8 @@ The current foundation contains:
 - an MVC model for global settings and multiple role-separated instances;
 - menu and ACL declarations;
 - a native tunnel CRUD page and browser-assisted egress enrollment workflow;
-- native FreeBSD `tunN` interfaces discovered by the OPNsense core;
+- configured native FreeBSD `tunN` interfaces published through the standard
+  OPNsense virtual-device hook;
 - pinned OPNsense 26.7 validation and packaging helpers;
 - a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.7.0.
 
@@ -129,6 +130,11 @@ and tunnel UUIDs to configd. The root worker claims that file with
 TTL, deletes the handoff, and invokes `usque-nativetun --jwt-file`. Tokens are
 never stored in `config.xml`, command arguments, logs, state responses or the
 resulting plugin model. The per-instance Rust configuration is mode `0600`.
+
+When an egress row is selected, the UI asks the root worker whether its
+owner-only configuration exists and is valid. A registered or blocked instance
+keeps the enrollment button disabled; the API never returns configuration
+contents or credentials.
 
 Cloudflare's custom protocol normally launches the official desktop client.
 OPNsense does not register or imitate that protocol handler; the one-time

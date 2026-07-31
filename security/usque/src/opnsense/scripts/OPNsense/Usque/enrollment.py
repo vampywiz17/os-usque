@@ -23,6 +23,7 @@ UUID_RE = re.compile(
 )
 MAX_TOKEN_BYTES = 65536
 TOKEN_TTL_SECONDS = 300
+MAX_CONFIG_BYTES = 1048576
 
 
 def validate_job_id(value: str) -> str:
@@ -36,6 +37,65 @@ def validate_tunnel_id(value: str) -> str:
     if not UUID_RE.fullmatch(value):
         raise ValueError("invalid tunnel UUID")
     return value
+
+
+def inspect_registration(tunnel_id: str, expected_owner: int = 0) -> dict:
+    tunnel_id = validate_tunnel_id(tunnel_id)
+    path = CONFIG_DIR / f"{tunnel_id}.json"
+    flags = os.O_RDONLY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError:
+        return {
+            "status": "ok",
+            "registered": False,
+            "can_register": True,
+            "message": "Client is not registered.",
+        }
+    except OSError:
+        return {
+            "status": "blocked",
+            "registered": False,
+            "can_register": False,
+            "message": "The registration configuration cannot be opened safely.",
+        }
+
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_uid != expected_owner
+            or metadata.st_mode & 0o077
+            or metadata.st_size < 2
+            or metadata.st_size > MAX_CONFIG_BYTES
+        ):
+            raise PermissionError("registration configuration has unsafe metadata")
+        raw = os.read(descriptor, MAX_CONFIG_BYTES + 1)
+        if len(raw) != metadata.st_size:
+            raise ValueError("registration configuration changed while reading")
+        decoded = json.loads(raw)
+        if not isinstance(decoded, dict) or decoded.get("role", "client") != "client":
+            raise ValueError("registration configuration is not an egress client")
+    except (OSError, ValueError):
+        return {
+            "status": "blocked",
+            "registered": False,
+            "can_register": False,
+            "message": "A registration configuration exists but is invalid or unsafe.",
+        }
+    finally:
+        os.close(descriptor)
+
+    return {
+        "status": "ok",
+        "registered": True,
+        "can_register": False,
+        "message": "Client is already registered.",
+    }
 
 
 def ensure_private_directory(path: Path) -> None:
@@ -184,6 +244,11 @@ def status(job_id: str) -> int:
     return 0
 
 
+def registration_status(tunnel_id: str) -> int:
+    print(json.dumps(inspect_registration(tunnel_id), separators=(",", ":")))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if os.geteuid() != 0:
         print("usque enrollment worker must run as root", file=sys.stderr)
@@ -192,7 +257,13 @@ def main(argv: list[str]) -> int:
         return register(argv[2], argv[3])
     if len(argv) == 3 and argv[1] == "status":
         return status(argv[2])
-    print("usage: enrollment.py register JOB_ID TUNNEL_UUID | status JOB_ID", file=sys.stderr)
+    if len(argv) == 3 and argv[1] == "registration-status":
+        return registration_status(argv[2])
+    print(
+        "usage: enrollment.py register JOB_ID TUNNEL_UUID | status JOB_ID | "
+        "registration-status TUNNEL_UUID",
+        file=sys.stderr,
+    )
     return 64
 
 

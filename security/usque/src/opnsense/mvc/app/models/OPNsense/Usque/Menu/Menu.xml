@@ -1,7 +1,7 @@
 <menu>
-    <Services>
-        <Usque order="95" VisibleName="usque">
+    <VPN>
+        <Usque order="95" VisibleName="usque" cssClass="fa fa-lock fa-fw">
             <General order="10" url="/ui/usque"/>
         </Usque>
-    </Services>
+    </VPN>
 </menu>
