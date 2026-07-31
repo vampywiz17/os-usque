@@ -1,0 +1,5 @@
+.build/
+*.core
+*.log
+*.pkg
+*.txz

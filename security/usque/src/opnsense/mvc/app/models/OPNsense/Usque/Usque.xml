@@ -1,0 +1,38 @@
+<model>
+    <mount>//OPNsense/usque</mount>
+    <version>0.1.0</version>
+    <description>usque tunnel settings</description>
+    <items>
+        <general>
+            <enabled type="BooleanField">
+                <Default>0</Default>
+                <Required>Y</Required>
+            </enabled>
+        </general>
+        <tunnels type="ArrayField">
+            <enabled type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </enabled>
+            <name type="TextField">
+                <Required>Y</Required>
+                <Mask>/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/</Mask>
+                <ValidationMessage>Use 1-64 letters, numbers, dots, underscores or dashes.</ValidationMessage>
+            </name>
+            <role type="OptionField">
+                <Required>Y</Required>
+                <Default>client</Default>
+                <OptionValues>
+                    <client>Egress client</client>
+                    <mesh-node>Ingress Mesh node</mesh-node>
+                </OptionValues>
+            </role>
+            <interface type="TextField">
+                <Required>Y</Required>
+                <Mask>/^usque[0-9]{1,3}$/</Mask>
+                <ValidationMessage>Use an interface name from usque0 through usque999.</ValidationMessage>
+            </interface>
+            <description type="DescriptionField"/>
+        </tunnels>
+    </items>
+</model>

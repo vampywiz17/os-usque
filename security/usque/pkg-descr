@@ -1,0 +1,8 @@
+Experimental OPNsense integration for the FreeBSD-native usque MASQUE and
+CONNECT-IP client.
+
+The finished plugin will supervise independent egress client and ingress Mesh
+node instances while leaving interface assignment, routing, gateways, firewall
+and NAT policy to the standard OPNsense subsystems.
+
+This development package is not affiliated with or endorsed by Cloudflare.

@@ -1,0 +1,7 @@
+<menu>
+    <Services>
+        <Usque order="95" VisibleName="usque">
+            <General order="10" url="/ui/usque"/>
+        </Usque>
+    </Services>
+</menu>
