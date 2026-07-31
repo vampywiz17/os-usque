@@ -21,22 +21,24 @@ interface and its standards-based QUIC/MASQUE data plane.
 
 ## Repository boundary
 
-This repository contains only the OPNsense plugin, its packaging metadata,
-tests and OPNsense-specific integration code. Changes to the underlying Rust
-client belong in
+This repository contains the OPNsense plugin, its packaging metadata, tests and
+OPNsense-specific integration code. Changes to the underlying Rust client
+belong in
 [`vampywiz17/usque-rs-bsd`](https://github.com/vampywiz17/usque-rs-bsd).
 
 The plugin source is kept at `security/usque`, matching its eventual location
 inside the official `opnsense/plugins` tree. OPNsense does not accept
-precompiled service binaries inside plugins. The finished plugin will depend
-on a separately packaged `usque-nativetun` FreeBSD port:
+precompiled service binaries inside plugins. The plugin therefore depends on
+the separately built `usque-nativetun` package:
 
 ```make
 PLUGIN_DEPENDS= usque-nativetun
 ```
 
-Until that package exists in the selected build repository, lint and structural
-validation can run, but the final `os-usque` package cannot be produced.
+Its standard FreeBSD port lives at `ports/security/usque-nativetun`. The port
+uses the official Cargo ports framework, an exact source commit, a committed
+Cargo lockfile and checksummed crate distfiles. No tunnel, QUIC, MASQUE or TUN
+behavior is patched for OPNsense packaging.
 
 ## Quick validation
 
@@ -46,45 +48,49 @@ Portable structural checks:
 make validate
 ```
 
-Prepare a local copy of the official OPNsense 26.7 plugin framework:
+Prepare local copies of the official OPNsense 26.7 plugin framework:
 
 ```sh
 make prepare
 ```
 
-On an OPNsense/FreeBSD development host with the required PHP tooling:
+Prepare, verify and package the Rust FreeBSD port on FreeBSD:
+
+```sh
+make ports-prepare
+make port-check
+make port-package
+```
+
+On an OPNsense/FreeBSD development host with the package installed and the
+required PHP tooling:
 
 ```sh
 make lint
 make style
-```
-
-Once `usque-nativetun` is installed as a package:
-
-```sh
 make package
 ```
 
-The build helpers pin the framework to `stable/26.7`. They operate only below
-the ignored `.build/` directory and never modify `/usr/plugins`.
-
-See [development setup](docs/DEVELOPMENT.md) and
-[architecture](docs/ARCHITECTURE.md) before contributing.
+The build helpers operate only below the ignored `.build/` directory and never
+modify `/usr/plugins` or `/usr/ports`. See
+[development setup](docs/DEVELOPMENT.md), [port packaging](docs/PORTING.md),
+and [architecture](docs/ARCHITECTURE.md) before contributing.
 
 ## Project status
 
-The initial scaffold contains:
+The current foundation contains:
 
 - OPNsense-compatible package metadata;
 - an MVC model for global settings and multiple role-separated instances;
 - menu and ACL declarations;
 - a read-only foundation page;
 - native plugin registration for future `usqueN` TUN interfaces;
-- pinned OPNsense 26.7 validation and packaging helpers.
+- pinned OPNsense 26.7 validation and packaging helpers;
+- a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.7.0.
 
 Service execution, credential enrollment, generated runtime configuration,
 interface assignment automation and routing integration are deliberately not
-implemented in this scaffold.
+implemented yet.
 
 ## Independence and truthful operation
 

@@ -1,0 +1,6 @@
+usque-nativetun is an independent, native FreeBSD TUN client that carries
+IPv4 and IPv6 packets over Cloudflare's QUIC MASQUE CONNECT-IP service.
+
+This package contains only the tunnel engine. OPNsense service lifecycle,
+policy routing, firewall rules, interface assignment, and secret management
+belong to the os-usque plugin.

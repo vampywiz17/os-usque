@@ -17,11 +17,14 @@
 - service lifecycle and status presentation;
 - registration of `usqueN` devices with OPNsense;
 - integration with the native interface, gateway, routing, firewall and NAT
-  subsystems.
+  subsystems;
+- the standard FreeBSD port that builds the unmodified tunnel engine.
 
 The plugin must not implement a second routing or packet-filter engine. It
 registers the TUN devices and lets the standard OPNsense components apply
-administrator-selected network policy.
+administrator-selected network policy. Packaging must not fork protocol logic:
+the port pins a reviewed `usque-rs-bsd` commit and builds it through the
+FreeBSD Cargo framework.
 
 ## Instance model
 
