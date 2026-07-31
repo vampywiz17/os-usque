@@ -2,6 +2,7 @@
 
 """Manage independent usque tunnel processes using FreeBSD daemon(8)."""
 
+import ipaddress
 import fcntl
 import json
 import os
@@ -16,11 +17,16 @@ from pathlib import Path
 
 BINARY = Path("/usr/local/bin/usque-nativetun")
 DAEMON = Path("/usr/sbin/daemon")
+ROUTE = Path("/sbin/route")
 MANIFEST = Path("/usr/local/etc/usque/instances.json")
 CONFIG_DIR = Path("/usr/local/etc/usque/instances")
 RUN_DIR = Path("/var/run/usque")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 INTERFACE_RE = re.compile(r"^tun[0-9]{1,3}$")
+MESH_RETURN_ROUTES = (
+    ("inet", "100.96.0.0/12", "100.96.0.1"),
+    ("inet6", "2606:4700:cf1:1000::/64", "2606:4700:cf1:1000::1"),
+)
 
 
 def secure_json(path: Path, maximum: int, require_private: bool) -> dict:
@@ -122,12 +128,22 @@ def read_interface_state(tunnel_id: str) -> str | None:
     return interface if INTERFACE_RE.fullmatch(interface) else None
 
 
-def write_interface_state(tunnel_id: str, interface: str) -> None:
+def write_interface_state(tunnel_id: str, interface: str, routes: list[tuple[str, str]] | None = None) -> None:
     if not INTERFACE_RE.fullmatch(interface):
         raise ValueError("invalid managed TUN interface")
+    valid = {(family, destination) for family, destination, _ in MESH_RETURN_ROUTES}
+    routes = [] if routes is None else routes
+    if any(route not in valid for route in routes):
+        raise ValueError("invalid managed Mesh route")
     destination = state_path(tunnel_id)
     temporary = RUN_DIR / f".{tunnel_id}.{os.getpid()}.tmp"
-    payload = json.dumps({"interface": interface}, separators=(",", ":")).encode()
+    payload = json.dumps({
+        "interface": interface,
+        "mesh_return_routes": [
+            {"family": family, "destination": network, "interface": interface}
+            for family, network in routes
+        ],
+    }, separators=(",", ":")).encode()
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
     try:
         descriptor = os.open(temporary, flags, 0o600)
@@ -145,6 +161,104 @@ def write_interface_state(tunnel_id: str, interface: str) -> None:
     except Exception:
         temporary.unlink(missing_ok=True)
         raise
+
+
+def owned_mesh_routes(tunnel_id: str) -> tuple[str, list[tuple[str, str]]] | None:
+    try:
+        state = secure_json(state_path(tunnel_id), 4096, True)
+    except (FileNotFoundError, PermissionError, ValueError, OSError):
+        return None
+    interface = str(state.get("interface", ""))
+    if not INTERFACE_RE.fullmatch(interface):
+        return None
+    routes = state.get("mesh_return_routes", [])
+    if not isinstance(routes, list):
+        return interface, []
+    valid = {(family, destination) for family, destination, _ in MESH_RETURN_ROUTES}
+    result = []
+    for route in routes:
+        if not isinstance(route, dict):
+            continue
+        value = (str(route.get("family", "")), str(route.get("destination", "")))
+        if value in valid and str(route.get("interface", "")) == interface:
+            result.append(value)
+    return interface, result
+
+
+def route_command(action: str, family: str, destination: str, interface: str) -> list[str]:
+    if family not in {"inet", "inet6"} or not INTERFACE_RE.fullmatch(interface):
+        raise ValueError("invalid managed route")
+    return [
+        str(ROUTE), "-n", "-4" if family == "inet" else "-6",
+        action, "-net", destination, "-interface", interface,
+    ]
+
+
+def install_mesh_return_routes(instance: dict) -> None:
+    if instance["role"] != "mesh-node":
+        return
+    interface = instance["interface"]
+    installed = []
+    for family, destination, _ in MESH_RETURN_ROUTES:
+        result = subprocess.run(
+            route_command("add", family, destination, interface),
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(
+                f"{interface}: cannot install required Mesh return route {destination}: "
+                f"{detail or result.returncode}"
+            )
+        installed.append((family, destination))
+        write_interface_state(instance["id"], interface, list(installed))
+
+
+def route_matches_owner(family: str, destination: str, probe: str, interface: str) -> bool:
+    result = subprocess.run(
+        [str(ROUTE), "-n", "-4" if family == "inet" else "-6", "get", probe],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        return False
+    values = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition(":")
+        if separator:
+            values[key.strip().lower()] = value.strip()
+    try:
+        expected = ipaddress.ip_network(destination).netmask
+        observed = ipaddress.ip_address(values.get("mask", ""))
+    except ValueError:
+        return False
+    return (
+        values.get("destination", "").lower() == destination.split("/", 1)[0].lower()
+        and observed == expected
+        and values.get("interface") == interface
+    )
+
+
+def remove_owned_mesh_return_routes(tunnel_id: str) -> None:
+    state = owned_mesh_routes(tunnel_id)
+    if state is None:
+        return
+    interface, routes = state
+    probes = {(family, destination): probe for family, destination, probe in MESH_RETURN_ROUTES}
+    remaining = list(routes)
+    for family, destination in routes:
+        if route_matches_owner(family, destination, probes[(family, destination)], interface):
+            result = subprocess.run(
+                route_command("delete", family, destination, interface),
+                capture_output=True, text=True, check=False,
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout).strip()
+                raise RuntimeError(
+                    f"{interface}: cannot remove plugin-owned Mesh return route {destination}: "
+                    f"{detail or result.returncode}"
+                )
+        remaining.remove((family, destination))
+        write_interface_state(tunnel_id, interface, remaining)
 
 
 def recover_interface_state(tunnel_id: str, child: Path) -> None:
@@ -212,6 +326,11 @@ def start(instance: dict) -> str:
     for _ in range(100):
         if read_pid(supervisor, str(supervisor)) is not None and \
                 read_pid(child, str(BINARY)) is not None and interface_exists(instance["interface"]):
+            try:
+                install_mesh_return_routes(instance)
+            except Exception:
+                stop_id(instance["id"])
+                raise
             return f'{instance["interface"]}: started'
         time.sleep(0.1)
     stop_id(instance["id"])
@@ -221,6 +340,7 @@ def start(instance: dict) -> str:
 def stop_id(tunnel_id: str) -> str:
     supervisor, child = paths(tunnel_id)
     recover_interface_state(tunnel_id, child)
+    remove_owned_mesh_return_routes(tunnel_id)
     pid = read_pid(supervisor, str(supervisor))
     if pid is None:
         if read_pid(child, str(BINARY)) is not None:

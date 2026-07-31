@@ -81,6 +81,21 @@ kernel object's lifetime. The usque device hook continues publishing stable
 `tunN` names while stopped, matching WireGuard's volatile-device lifecycle.
 
 No controller may interpolate unvalidated values into a shell command. Configd
+## Mesh return-path ownership
+
+Cloudflare's default Mesh Device IP networks are `100.96.0.0/12` and
+`2606:4700:cf1:1000::/64`. A Mesh node that publishes a downstream network
+requires both return routes through its TUN so replies do not follow the WAN
+default route. Once the Rust Mesh command has created the device, the lifecycle
+worker adds FreeBSD `route(8) -interface` routes for those networks.
+
+The routes are limited to the Mesh role. Each is recorded after a successful
+add in the same private runtime state as the TUN. During shutdown the worker
+verifies the FIB resolves the exact route through the recorded interface and
+removes only such a match before destroying the TUN. Routes replaced outside
+the plugin are not deleted. This implementation neither configures NAT nor
+takes ownership of firewall, policy-routing, gateway, or general static routes.
+
 parameters will be restricted to instance UUIDs and resolved server-side.
 
 ## Status semantics

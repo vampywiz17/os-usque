@@ -99,7 +99,9 @@ class ServiceLifecycleTests(unittest.TestCase):
                 patch.object(service.subprocess, "run", return_value=completed) as run:
             message = service.start(instance)
 
-        command = run.call_args.args[0]
+        command = next(
+            call.args[0] for call in run.call_args_list if call.args[0][0] == str(service.DAEMON)
+        )
         binary_index = command.index(str(service.BINARY))
         self.assertEqual(command[binary_index + 1], "mesh-node")
         self.assertNotIn("nativetun", command[binary_index + 1:])
@@ -197,6 +199,96 @@ class ServiceLifecycleTests(unittest.TestCase):
             self.assertEqual(service.main(["service.py", "stop"]), 0)
         stop.assert_called_once_with(self.tunnel_id)
         load.assert_not_called()
+
+
+    def test_mesh_start_installs_mesh_routes_after_tun_is_ready(self):
+        instance = dict(self.instance)
+        instance["role"] = "mesh-node"
+        instance["interface"] = "tun1"
+        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch.object(service, "read_pid", side_effect=[None, 101, 202]),                 patch.object(service, "interface_exists", side_effect=[False, True]),                 patch.object(service.subprocess, "run", return_value=completed),                 patch.object(service, "install_mesh_return_routes") as install:
+            service.start(instance)
+        install.assert_called_once_with(instance)
+
+    def test_client_start_does_not_change_mesh_routes(self):
+        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch.object(service, "read_pid", side_effect=[None, 101, 202]),                 patch.object(service, "interface_exists", side_effect=[False, True]),                 patch.object(service.subprocess, "run", return_value=completed),                 patch.object(service, "install_mesh_return_routes") as install:
+            service.start(self.instance)
+        install.assert_called_once_with(self.instance)
+        self.assertEqual(install.call_args.args[0]["role"], "client")
+
+    def test_mesh_routes_use_native_freebsd_interface_routes(self):
+        self.assertEqual(
+            service.route_command("add", "inet", "100.96.0.0/12", "tun1"),
+            ["/sbin/route", "-n", "-4", "add", "-net", "100.96.0.0/12", "-interface", "tun1"],
+        )
+        self.assertEqual(
+            service.route_command("add", "inet6", "2606:4700:cf1:1000::/64", "tun1"),
+            ["/sbin/route", "-n", "-6", "add", "-net", "2606:4700:cf1:1000::/64", "-interface", "tun1"],
+        )
+
+    def test_mesh_route_install_records_each_successful_route(self):
+        instance = dict(self.instance)
+        instance["role"] = "mesh-node"
+        instance["interface"] = "tun1"
+        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch.object(service.subprocess, "run", return_value=completed) as run,                 patch.object(service, "write_interface_state") as write:
+            service.install_mesh_return_routes(instance)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(write.call_args_list[0].args, (
+            self.tunnel_id, "tun1", [("inet", "100.96.0.0/12")],
+        ))
+        self.assertEqual(write.call_args_list[1].args, (
+            self.tunnel_id, "tun1", [
+                ("inet", "100.96.0.0/12"),
+                ("inet6", "2606:4700:cf1:1000::/64"),
+            ],
+        ))
+
+    def test_route_cleanup_does_not_delete_externally_replaced_route(self):
+        state = {
+            "interface": "tun1",
+            "mesh_return_routes": [{
+                "family": "inet",
+                "destination": "100.96.0.0/12",
+                "interface": "tun1",
+            }],
+        }
+        with patch.object(service, "owned_mesh_routes", return_value=("tun1", [("inet", "100.96.0.0/12")])),                 patch.object(service, "route_matches_owner", return_value=False),                 patch.object(service, "write_interface_state") as write,                 patch.object(service.subprocess, "run") as run:
+            service.remove_owned_mesh_return_routes(self.tunnel_id)
+        run.assert_not_called()
+        write.assert_called_once_with(self.tunnel_id, "tun1", [])
+    def test_route_cleanup_requires_exact_network_mask_and_interface(self):
+        matching = SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "   route to: 100.96.0.1\n"
+                "destination: 100.96.0.0\n"
+                "       mask: 255.240.0.0\n"
+                "  interface: tun1\n"
+            ),
+            stderr="",
+        )
+        replaced = SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "   route to: 100.96.0.1\n"
+                "destination: 100.96.0.0\n"
+                "       mask: 255.255.255.0\n"
+                "  interface: tun1\n"
+            ),
+            stderr="",
+        )
+        with patch.object(service.subprocess, "run", return_value=matching):
+            self.assertTrue(
+                service.route_matches_owner("inet", "100.96.0.0/12", "100.96.0.1", "tun1")
+            )
+        with patch.object(service.subprocess, "run", return_value=replaced):
+            self.assertFalse(
+                service.route_matches_owner("inet", "100.96.0.0/12", "100.96.0.1", "tun1")
+            )
+
+
 
 
 if __name__ == "__main__":

@@ -16,8 +16,9 @@ OPNsense. The Rust client remains responsible only for registration, the TUN
 interface and its standards-based QUIC/MASQUE data plane.
 
 > [!WARNING]
-> This repository is under active development. Enrollment and service
-> lifecycle are implemented, but routing integration is not production-ready.
+> This repository is under active development. Enrollment, service lifecycle
+> and the required default Mesh return routes are implemented. General
+> policy-routing integration is not production-ready.
 
 ## Repository boundary
 
@@ -119,8 +120,30 @@ The current foundation contains:
 - pinned OPNsense 26.7 validation and packaging helpers;
 - a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.7.0.
 
-Interface assignment automation and routing integration are not implemented
-yet. Both enrollment paths create the root-only per-instance configuration.
+Interface assignment automation and Mesh return-route reconciliation are implemented. Both enrollment paths create the root-only per-instance configuration.
+
+## Mesh return routes
+
+Cloudflare Mesh clients use the configured Device IP ranges. With Cloudflare's
+default ranges, a node that routes a downstream network must return
+`100.96.0.0/12` and `2606:4700:cf1:1000::/64` through the Mesh TUN
+interface. Otherwise a request may arrive over Mesh while its reply follows
+the WAN default gateway.
+
+After a **Mesh node** is ready, the plugin installs these native FreeBSD
+`route(8) -interface` routes. They use the point-to-point TUN name rather
+than a synthetic peer gateway, so they remain valid if Cloudflare changes the
+assigned tunnel address. Egress client instances never receive these routes.
+
+Each successful route is recorded in the root-only runtime ownership state.
+When the instance stops, the plugin first confirms the exact route still
+resolves to its recorded `tunN`, then removes it before destroying the
+interface. A route that was changed outside the plugin is left untouched.
+
+The default Device IP ranges have one route target per FreeBSD FIB. Do not
+start two Mesh nodes using the same default ranges in the same FIB; use a
+deliberately separate routing design for that advanced topology. Firewall,
+NAT, gateways, and policy routing remain administrator-owned OPNsense policy.
 
 ## Independence and truthful operation
 
