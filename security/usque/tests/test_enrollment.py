@@ -2,6 +2,8 @@ import importlib.util
 import os
 import stat
 import tempfile
+from types import SimpleNamespace
+from unittest import mock
 import unittest
 from pathlib import Path
 
@@ -21,10 +23,16 @@ class EnrollmentSecurityTests(unittest.TestCase):
         self.spool = root / "spool"
         self.state = root / "state"
         self.config = root / "config"
+        self.run_dir = root / "run"
+        self.manifest = root / "instances.json"
+        self.run_dir.mkdir()
+        self.manifest.write_text('{"enabled":false}', encoding="utf-8")
         self.spool.mkdir()
         enrollment.SPOOL_DIR = self.spool
         enrollment.STATE_DIR = self.state
         enrollment.CONFIG_DIR = self.config
+        enrollment.RUN_DIR = self.run_dir
+        enrollment.MANIFEST = self.manifest
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -75,7 +83,7 @@ class EnrollmentSecurityTests(unittest.TestCase):
 
     def test_registration_state_distinguishes_missing_and_valid_config(self):
         tunnel_id = "12345678-1234-4234-8234-123456789abc"
-        missing = enrollment.inspect_registration(tunnel_id, os.getuid())
+        missing = enrollment.inspect_registration(tunnel_id, expected_owner=os.getuid())
         self.assertTrue(missing["can_register"])
         self.assertFalse(missing["registered"])
 
@@ -84,7 +92,7 @@ class EnrollmentSecurityTests(unittest.TestCase):
         path.write_text('{"role":"client","private_key":"not-returned"}', encoding="utf-8")
         path.chmod(0o600)
 
-        registered = enrollment.inspect_registration(tunnel_id, os.getuid())
+        registered = enrollment.inspect_registration(tunnel_id, expected_owner=os.getuid())
         self.assertTrue(registered["registered"])
         self.assertFalse(registered["can_register"])
         self.assertNotIn("private_key", str(registered))
@@ -96,7 +104,7 @@ class EnrollmentSecurityTests(unittest.TestCase):
         path.write_text('{"role":"client"}', encoding="utf-8")
         path.chmod(0o640)
 
-        state = enrollment.inspect_registration(tunnel_id, os.getuid())
+        state = enrollment.inspect_registration(tunnel_id, expected_owner=os.getuid())
         self.assertEqual(state["status"], "blocked")
         self.assertFalse(state["registered"])
         self.assertFalse(state["can_register"])
@@ -108,9 +116,78 @@ class EnrollmentSecurityTests(unittest.TestCase):
         path.write_text('{"role":"mesh-node"}', encoding="utf-8")
         path.chmod(0o600)
 
-        state = enrollment.inspect_registration(tunnel_id, os.getuid())
+        state = enrollment.inspect_registration(tunnel_id, expected_owner=os.getuid())
         self.assertEqual(state["status"], "blocked")
         self.assertFalse(state["can_register"])
+
+    def test_registration_state_accepts_matching_mesh_config(self):
+        tunnel_id = "42345678-1234-4234-8234-123456789abc"
+        self.config.mkdir()
+        path = self.config / f"{tunnel_id}.json"
+        path.write_text('{"role":"mesh-node"}', encoding="utf-8")
+        path.chmod(0o600)
+
+        state = enrollment.inspect_registration(
+            tunnel_id, "mesh-node", expected_owner=os.getuid()
+        )
+        self.assertEqual(state["status"], "ok")
+        self.assertTrue(state["registered"])
+
+    def test_mesh_registration_uses_token_file_and_explicit_acknowledgements(self):
+        job_id = "e" * 32
+        tunnel_id = "52345678-1234-4234-8234-123456789abc"
+        handoff = self.token_path(job_id)
+        handoff.write_bytes(b"opaque-mesh-token")
+        handoff.chmod(0o600)
+        observed = {}
+
+        def run(command, **kwargs):
+            observed["command"] = command
+            self.config.mkdir(exist_ok=True)
+            path = self.config / f"{tunnel_id}.json"
+            path.write_text('{"role":"mesh-node"}', encoding="utf-8")
+            path.chmod(0o600)
+            return SimpleNamespace(returncode=0, stdout="")
+
+        with mock.patch.object(enrollment, "allowed_spool_owners", return_value={os.getuid()}):
+            with mock.patch.object(enrollment.subprocess, "run", side_effect=run):
+                result = enrollment.register(job_id, tunnel_id, "mesh-node")
+
+        self.assertEqual(result, 0)
+        command = observed["command"]
+        self.assertIn("mesh-register", command)
+        self.assertIn("--token-file", command)
+        self.assertIn("--accept-tos", command)
+        self.assertIn("--acknowledge-linux-platform-claim", command)
+        self.assertNotIn("opaque-mesh-token", command)
+        self.assertFalse(handoff.exists())
+
+    def test_delete_registration_removes_private_config_when_service_is_off(self):
+        tunnel_id = "62345678-1234-4234-8234-123456789abc"
+        self.config.mkdir()
+        path = self.config / f"{tunnel_id}.json"
+        path.write_text('{"role":"client"}', encoding="utf-8")
+        path.chmod(0o600)
+
+        result = enrollment.delete_registration(
+            tunnel_id, "client", expected_owner=os.getuid()
+        )
+        self.assertEqual(result, 0)
+        self.assertFalse(path.exists())
+
+    def test_delete_registration_is_blocked_while_service_is_enabled(self):
+        tunnel_id = "72345678-1234-4234-8234-123456789abc"
+        self.manifest.write_text('{"enabled":true}', encoding="utf-8")
+        self.config.mkdir()
+        path = self.config / f"{tunnel_id}.json"
+        path.write_text('{"role":"mesh-node"}', encoding="utf-8")
+        path.chmod(0o600)
+
+        result = enrollment.delete_registration(
+            tunnel_id, "mesh-node", expected_owner=os.getuid()
+        )
+        self.assertEqual(result, 1)
+        self.assertTrue(path.exists())
 
     def test_identifiers_are_strict(self):
         self.assertEqual(enrollment.validate_job_id("d" * 32), "d" * 32)

@@ -3,6 +3,7 @@
 """Privilege-separated browser enrollment worker for os-usque."""
 
 import json
+import fcntl
 import os
 import pwd
 import re
@@ -15,6 +16,9 @@ from pathlib import Path
 
 BINARY = Path("/usr/local/bin/usque-nativetun")
 CONFIG_DIR = Path("/usr/local/etc/usque/instances")
+MANIFEST = Path("/usr/local/etc/usque/instances.json")
+RUN_DIR = Path("/var/run/usque")
+ROLES = {"client", "mesh-node"}
 STATE_DIR = Path("/var/run/usque/enrollment")
 SPOOL_DIR = Path("/var/tmp")
 JOB_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -39,7 +43,15 @@ def validate_tunnel_id(value: str) -> str:
     return value
 
 
-def inspect_registration(tunnel_id: str, expected_owner: int = 0) -> dict:
+def validate_role(value: str) -> str:
+    if value not in ROLES:
+        raise ValueError("invalid tunnel role")
+    return value
+
+
+def inspect_registration(tunnel_id: str, role: str = "client", expected_owner: int = 0) -> dict:
+    role = validate_role(role)
+    label = "Mesh node" if role == "mesh-node" else "Client"
     tunnel_id = validate_tunnel_id(tunnel_id)
     path = CONFIG_DIR / f"{tunnel_id}.json"
     flags = os.O_RDONLY | os.O_CLOEXEC
@@ -53,7 +65,7 @@ def inspect_registration(tunnel_id: str, expected_owner: int = 0) -> dict:
             "status": "ok",
             "registered": False,
             "can_register": True,
-            "message": "Client is not registered.",
+            "message": f"{label} is not registered.",
         }
     except OSError:
         return {
@@ -78,8 +90,8 @@ def inspect_registration(tunnel_id: str, expected_owner: int = 0) -> dict:
         if len(raw) != metadata.st_size:
             raise ValueError("registration configuration changed while reading")
         decoded = json.loads(raw)
-        if not isinstance(decoded, dict) or decoded.get("role", "client") != "client":
-            raise ValueError("registration configuration is not an egress client")
+        if not isinstance(decoded, dict) or decoded.get("role", "client") != role:
+            raise ValueError("registration configuration role does not match the tunnel")
     except (OSError, ValueError):
         return {
             "status": "blocked",
@@ -94,7 +106,7 @@ def inspect_registration(tunnel_id: str, expected_owner: int = 0) -> dict:
         "status": "ok",
         "registered": True,
         "can_register": False,
-        "message": "Client is already registered.",
+        "message": f"{label} is already registered.",
     }
 
 
@@ -178,10 +190,11 @@ def root_token_file(token: bytes) -> Path:
     return Path(name)
 
 
-def register(job_id: str, tunnel_id: str) -> int:
+def register(job_id: str, tunnel_id: str, role: str) -> int:
     job_id = validate_job_id(job_id)
     tunnel_id = validate_tunnel_id(tunnel_id)
     write_state(job_id, "claiming_token", "Claiming one-time enrollment token.", tunnel_id)
+    role = validate_role(role)
     private_token = None
     try:
         token = claim_browser_token(job_id)
@@ -193,16 +206,25 @@ def register(job_id: str, tunnel_id: str) -> int:
         if config_path.exists():
             raise FileExistsError("a registration configuration already exists for this tunnel")
 
-        write_state(job_id, "registering", "Registering device and enrolling its MASQUE key.", tunnel_id)
-        command = [
-            str(BINARY),
-            "--config",
-            str(config_path),
-            "register",
-            "--jwt-file",
-            str(private_token),
-            "--accept-tos",
-        ]
+        write_state(
+            job_id,
+            "registering",
+            "Registering device and enrolling its MASQUE key.",
+            tunnel_id,
+        )
+        command = [str(BINARY), "--config", str(config_path)]
+        if role == "mesh-node":
+            command.extend([
+                "mesh-register",
+                "--token-file",
+                str(private_token),
+                "--accept-tos",
+                "--acknowledge-linux-platform-claim",
+            ])
+        else:
+            command.extend([
+                "register", "--jwt-file", str(private_token), "--accept-tos",
+            ])
         result = subprocess.run(
             command,
             stdin=subprocess.DEVNULL,
@@ -219,9 +241,9 @@ def register(job_id: str, tunnel_id: str) -> int:
 
         os.chmod(config_path, 0o600)
         decoded = json.loads(config_path.read_text(encoding="utf-8"))
-        if decoded.get("role", "client") != "client":
-            raise RuntimeError("registration produced a non-client configuration")
-        write_state(job_id, "completed", "Client registration completed.", tunnel_id)
+        if decoded.get("role", "client") != role:
+            raise RuntimeError("registration produced a configuration with the wrong role")
+        write_state(job_id, "completed", "Tunnel registration completed.", tunnel_id)
         return 0
     except Exception as error:
         write_state(job_id, "failed", str(error), tunnel_id)
@@ -234,6 +256,98 @@ def register(job_id: str, tunnel_id: str) -> int:
                 pass
 
 
+def runtime_is_disabled(expected_owner: int = 0) -> tuple[bool, str]:
+    try:
+        flags = os.O_RDONLY | os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(MANIFEST, flags)
+    except FileNotFoundError:
+        descriptor = None
+    except OSError:
+        return False, "The generated service manifest cannot be opened safely."
+
+    if descriptor is not None:
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_uid != expected_owner
+                or metadata.st_size < 2
+                or metadata.st_size > MAX_CONFIG_BYTES
+            ):
+                return False, "The generated service manifest has unsafe metadata."
+            raw = os.read(descriptor, MAX_CONFIG_BYTES + 1)
+            manifest = json.loads(raw)
+            if not isinstance(manifest, dict) or manifest.get("enabled", False):
+                return False, "Disable and apply the usque service before deleting a tunnel."
+        except (OSError, ValueError):
+            return False, "The generated service manifest is invalid."
+        finally:
+            os.close(descriptor)
+
+    for path in RUN_DIR.glob("*.pid"):
+        try:
+            pid = int(path.read_text(encoding="ascii").strip())
+            os.kill(pid, 0)
+            return False, "A managed usque process is still running."
+        except (FileNotFoundError, ValueError, ProcessLookupError):
+            continue
+        except PermissionError:
+            return False, "A managed usque process could not be verified as stopped."
+    if next(RUN_DIR.glob("*.state.json"), None) is not None:
+        return False, "A managed TUN interface still has runtime ownership state."
+    return True, ""
+
+
+def delete_registration(tunnel_id: str, role: str, expected_owner: int = 0) -> int:
+    tunnel_id = validate_tunnel_id(tunnel_id)
+    role = validate_role(role)
+    RUN_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
+    lock_path = RUN_DIR / "service.lock"
+    with lock_path.open("a+", encoding="ascii") as lock:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        disabled, message = runtime_is_disabled(expected_owner)
+        if not disabled:
+            print(json.dumps({"status": "blocked", "message": message}, separators=(",", ":")))
+            return 1
+
+        path = CONFIG_DIR / f"{tunnel_id}.json"
+        flags = os.O_RDONLY | os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(path, flags)
+        except FileNotFoundError:
+            print(json.dumps({"status": "ok", "removed": False}, separators=(",", ":")))
+            return 0
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_uid != expected_owner
+                or metadata.st_mode & 0o077
+                or metadata.st_size < 2
+                or metadata.st_size > MAX_CONFIG_BYTES
+            ):
+                raise PermissionError("registration configuration has unsafe metadata")
+            raw = os.read(descriptor, MAX_CONFIG_BYTES + 1)
+            decoded = json.loads(raw)
+            if not isinstance(decoded, dict) or decoded.get("role", "client") != role:
+                raise ValueError("registration configuration role does not match the tunnel")
+            current = path.stat(follow_symlinks=False)
+            if current.st_dev != metadata.st_dev or current.st_ino != metadata.st_ino:
+                raise PermissionError("registration configuration changed before deletion")
+            path.unlink()
+        finally:
+            os.close(descriptor)
+        print(json.dumps({"status": "ok", "removed": True}, separators=(",", ":")))
+        return 0
+
+
 def status(job_id: str) -> int:
     job_id = validate_job_id(job_id)
     path = STATE_DIR / f"{job_id}.json"
@@ -244,8 +358,8 @@ def status(job_id: str) -> int:
     return 0
 
 
-def registration_status(tunnel_id: str) -> int:
-    print(json.dumps(inspect_registration(tunnel_id), separators=(",", ":")))
+def registration_status(tunnel_id: str, role: str) -> int:
+    print(json.dumps(inspect_registration(tunnel_id, role), separators=(",", ":")))
     return 0
 
 
@@ -253,15 +367,19 @@ def main(argv: list[str]) -> int:
     if os.geteuid() != 0:
         print("usque enrollment worker must run as root", file=sys.stderr)
         return 77
-    if len(argv) == 4 and argv[1] == "register":
-        return register(argv[2], argv[3])
+    if len(argv) == 4 and argv[1] == "register-client":
+        return register(argv[2], argv[3], "client")
+    if len(argv) == 4 and argv[1] == "register-mesh":
+        return register(argv[2], argv[3], "mesh-node")
     if len(argv) == 3 and argv[1] == "status":
         return status(argv[2])
-    if len(argv) == 3 and argv[1] == "registration-status":
-        return registration_status(argv[2])
+    if len(argv) == 4 and argv[1] == "registration-status":
+        return registration_status(argv[2], argv[3])
+    if len(argv) == 4 and argv[1] == "delete-registration":
+        return delete_registration(argv[2], argv[3])
     print(
-        "usage: enrollment.py register JOB_ID TUNNEL_UUID | status JOB_ID | "
-        "registration-status TUNNEL_UUID",
+        "usage: enrollment.py register-client|register-mesh JOB_ID TUNNEL_UUID | "
+        "status JOB_ID | registration-status|delete-registration TUNNEL_UUID ROLE",
         file=sys.stderr,
     )
     return 64

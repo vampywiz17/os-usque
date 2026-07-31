@@ -35,6 +35,10 @@ FreeBSD `tunN` interface name and exactly one role:
 - `client` for egress;
 - `mesh-node` for ingress.
 
+The service command is role-specific: `client` maps to `nativetun`, and
+`mesh-node` maps to the Rust `mesh-node` subcommand. Mesh omits the redundant
+`--always-reconnect` flag because the Rust Mesh role maintains its edge session.
+
 Separate configuration and state directories prevent one instance from
 overwriting or controlling another. Both roles may run concurrently.
 
@@ -90,7 +94,7 @@ reconnection accurately.
 
 ## Enrollment privilege boundary
 
-Browser enrollment is intentionally split across three trust levels:
+Both enrollment modes are intentionally split across three trust levels:
 
 ```text
 authenticated MVC API (www)
@@ -98,7 +102,7 @@ authenticated MVC API (www)
   -> configd action (job UUID + tunnel UUID only)
   -> root enrollment worker
   -> root-owned JWT file (0600)
-  -> usque-nativetun --jwt-file
+  -> usque-nativetun --jwt-file or mesh-register --token-file
   -> /usr/local/etc/usque/instances/<uuid>.json (0600)
 ```
 
@@ -110,8 +114,18 @@ key are never returned through the plugin API.
 
 Registration availability is also resolved by the root worker. It opens the
 per-instance configuration with `O_NOFOLLOW`, verifies owner-only metadata and
-the client role, and returns booleans only. The web process never reads or
+the selected role, and returns booleans only. The web process never reads or
 returns the credential-bearing JSON.
 
-This workflow applies only to the `client` role. Mesh connector registration
-continues to use its separate Cloudflare-generated token-file workflow.
+The client role accepts the browser callback/JWT workflow. The Mesh role accepts
+only a Cloudflare-generated connector token and requires explicit ToS and Linux
+platform-claim acknowledgements before the existing Rust Mesh registration
+command is invoked. Neither path stores its one-time input in the MVC model.
+
+Tunnel deletion uses the lifecycle worker's shared exclusive lock. It is
+allowed only after the persistent global service setting is disabled, the
+generated manifest is disabled, no managed PID is live and no TUN ownership
+state remains. The root worker reopens and validates the role-specific
+credential, then verifies its inode immediately before unlinking it. Only after
+that succeeds does the MVC controller remove the tunnel row. OPNsense interface
+assignments and network policy are intentionally outside this deletion.

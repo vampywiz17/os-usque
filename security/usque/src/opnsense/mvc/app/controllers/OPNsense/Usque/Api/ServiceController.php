@@ -26,17 +26,32 @@ class ServiceController extends ApiControllerBase
         $service = trim($backend->configdRun('usque restart'));
         $runtime = json_decode(trim($backend->configdRun('usque status')), true);
         $healthy = is_array($runtime) && ($runtime['status'] ?? '') === 'ok';
+        $failed = [];
         foreach ($runtime['instances'] ?? [] as $instance) {
             if (empty($instance['running'])) {
                 $healthy = false;
-                break;
+                $failed[] = sprintf(
+                    '%s (%s)',
+                    $instance['interface'] ?? '?',
+                    $instance['role'] ?? '?'
+                );
             }
+        }
+        $message = $service;
+        if (!$healthy && empty($message)) {
+            $message = !empty($failed)
+                ? sprintf(
+                    gettext('Tunnel process did not start: %s. Check the instance syslog for details.'),
+                    implode(', ', $failed)
+                )
+                : gettext('Unable to read the managed tunnel runtime state.');
         }
         return [
             'status' => $healthy ? 'ok' : 'failed',
             'template' => $template,
             'response' => $service,
             'runtime' => $runtime,
+            'message' => $message,
         ];
     }
 

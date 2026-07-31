@@ -34,6 +34,21 @@ grep -q '^PLIST_FILES=.*bin/usque-nativetun' "${port_dir}/Makefile" ||
 grep -q 'BINARY = Path("/usr/local/bin/usque-nativetun")' \
     "${plugin_dir}/src/opnsense/scripts/OPNsense/Usque/enrollment.py" ||
     fail "enrollment worker binary path does not match the FreeBSD port"
+enrollment_worker="${plugin_dir}/src/opnsense/scripts/OPNsense/Usque/enrollment.py"
+grep -Fq '"mesh-register"' "${enrollment_worker}" &&
+    grep -Fq '"--acknowledge-linux-platform-claim"' "${enrollment_worker}" ||
+    fail "Mesh registration must use the existing explicit Rust CLI contract"
+grep -Fq 'delete-registration' "${enrollment_worker}" ||
+    fail "missing stopped-service credential deletion worker"
+
+enrollment_actions="${plugin_dir}/src/opnsense/service/conf/actions.d/actions_usque.conf"
+grep -Fq '[mesh_register]' "${enrollment_actions}" ||
+    fail "missing configd Mesh registration action"
+grep -Fq '[delete_registration]' "${enrollment_actions}" ||
+    fail "missing configd credential deletion action"
+grep -Fq 'acknowledge_linux_platform_claim' \
+    "${plugin_dir}/src/opnsense/mvc/app/controllers/OPNsense/Usque/Api/EnrollmentController.php" ||
+    fail "Mesh registration must require explicit unsupported-platform acknowledgement"
 
 device_hook="${plugin_dir}/src/etc/inc/plugins.inc.d/usque.inc"
 [ -f "${device_hook}" ] || fail "missing OPNsense virtual-device hook"

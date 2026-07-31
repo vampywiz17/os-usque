@@ -2,6 +2,7 @@
 
 """Manage independent usque tunnel processes using FreeBSD daemon(8)."""
 
+import fcntl
 import json
 import os
 import re
@@ -194,13 +195,15 @@ def start(instance: dict) -> str:
     supervisor.unlink(missing_ok=True)
     child.unlink(missing_ok=True)
     write_interface_state(instance["id"], instance["interface"])
+    subcommand = "mesh-node" if instance["role"] == "mesh-node" else "nativetun"
     command = [
         str(DAEMON), "-c", "-f", "-r", "-R", "5", "-S", "-l", "daemon", "-s", "info",
         "-P", str(supervisor), "-p", str(child),
-        "-T", f'usque-{instance["interface"]}', str(BINARY), "nativetun",
+        "-T", f'usque-{instance["interface"]}', str(BINARY), subcommand,
         "--config", str(instance["config"]), "--interface-name", instance["interface"],
-        "--always-reconnect",
     ]
+    if instance["role"] == "client":
+        command.append("--always-reconnect")
     result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
@@ -258,6 +261,26 @@ def status(instances: list[dict]) -> int:
     return 0
 
 
+def dispatch(action: str) -> int:
+    messages = []
+    if action in {"stop", "restart"}:
+        for tunnel_id in sorted(known_ids()):
+            messages.append(stop_id(tunnel_id))
+        if action == "stop":
+            print("\n".join(messages))
+            return 0
+    instances = load_instances()
+    desired = {item["id"] for item in instances}
+    if action == "status":
+        return status(instances)
+    for tunnel_id in sorted(known_ids() - desired):
+        messages.append(stop_id(tunnel_id))
+    for instance in instances:
+        messages.append(start(instance))
+    print("\n".join(messages))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if os.geteuid() != 0:
         print("usque service manager must run as root", file=sys.stderr)
@@ -266,23 +289,11 @@ def main(argv: list[str]) -> int:
         print("usage: service.py start|stop|restart|status", file=sys.stderr)
         return 64
     RUN_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
-    messages = []
-    if argv[1] in {"stop", "restart"}:
-        for tunnel_id in sorted(known_ids()):
-            messages.append(stop_id(tunnel_id))
-        if argv[1] == "stop":
-            print("\n".join(messages))
-            return 0
-    instances = load_instances()
-    desired = {item["id"] for item in instances}
-    if argv[1] == "status":
-        return status(instances)
-    for tunnel_id in sorted(known_ids() - desired):
-        messages.append(stop_id(tunnel_id))
-    for instance in instances:
-        messages.append(start(instance))
-    print("\n".join(messages))
-    return 0
+    lock_path = RUN_DIR / "service.lock"
+    with lock_path.open("a+", encoding="ascii") as lock:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        return dispatch(argv[1])
 
 
 if __name__ == "__main__":

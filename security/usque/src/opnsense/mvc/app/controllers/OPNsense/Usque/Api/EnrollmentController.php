@@ -21,23 +21,36 @@ class EnrollmentController extends ApiControllerBase
     private const JOB_PATTERN = '/^[0-9a-f]{32}$/';
     private const MAX_TOKEN_BYTES = 65536;
 
-    private function getClientTunnel($uuid)
+    private function getTunnel($uuid, string $role)
     {
         if (!is_string($uuid) || preg_match(self::UUID_PATTERN, $uuid) !== 1) {
             return null;
         }
         $node = (new Usque())->getNodeByReference('tunnels.tunnel.' . $uuid);
-        if ($node === null || (string)$node->role !== 'client') {
+        if ($node === null || (string)$node->role !== $role) {
             return null;
         }
         return $node;
     }
 
-    private function getRegistrationState($uuid)
+    private function getClientTunnel($uuid)
+    {
+        return $this->getTunnel($uuid, 'client');
+    }
+
+    private function getMeshTunnel($uuid)
+    {
+        return $this->getTunnel($uuid, 'mesh-node');
+    }
+
+    private function getRegistrationState($uuid, string $role)
     {
         try {
             $response = trim(
-                (new Backend())->configdpRun('usque client_registration_status', [strtolower($uuid)])
+                (new Backend())->configdpRun(
+                    'usque client_registration_status',
+                    [strtolower($uuid), $role]
+                )
             );
             $decoded = json_decode($response, true);
         } catch (\Throwable $error) {
@@ -54,7 +67,7 @@ class EnrollmentController extends ApiControllerBase
                 'status' => 'failed',
                 'registered' => false,
                 'can_register' => false,
-                'message' => gettext('Unable to determine the client registration state.'),
+                'message' => gettext('Unable to determine the tunnel registration state.'),
             ];
         }
 
@@ -102,15 +115,16 @@ class EnrollmentController extends ApiControllerBase
         if (!$this->request->isPost()) {
             return ['status' => 'failed', 'registered' => false, 'can_register' => false];
         }
-        if ($this->getClientTunnel($uuid) === null) {
+        $node = $this->getClientTunnel($uuid) ?? $this->getMeshTunnel($uuid);
+        if ($node === null) {
             return [
                 'status' => 'failed',
                 'registered' => false,
                 'can_register' => false,
-                'message' => gettext('Select an egress client tunnel.'),
+                'message' => gettext('Select an egress client or ingress Mesh tunnel.'),
             ];
         }
-        return $this->getRegistrationState($uuid);
+        return $this->getRegistrationState($uuid, (string)$node->role);
     }
 
     public function loginUrlAction($uuid)
@@ -132,30 +146,8 @@ class EnrollmentController extends ApiControllerBase
         ];
     }
 
-    public function registerAction($uuid)
+    private function startRegistration($uuid, string $token, string $action)
     {
-        if (!$this->request->isPost()) {
-            return ['status' => 'failed'];
-        }
-        $node = $this->getClientTunnel($uuid);
-        if ($node === null) {
-            return ['status' => 'failed', 'message' => gettext('Select an egress client tunnel.')];
-        }
-        $registration = $this->getRegistrationState($uuid);
-        if (!$registration['can_register']) {
-            return ['status' => 'failed', 'message' => $registration['message']];
-        }
-
-        if ((string)$this->request->getPost('accept_tos') !== '1') {
-            return ['status' => 'failed', 'message' => gettext('Cloudflare Terms of Service must be accepted explicitly.')];
-        }
-
-        $team = strtolower((string)$node->team);
-        $token = $this->extractToken($this->request->getPost('token'), $team);
-        if ($token === null) {
-            return ['status' => 'failed', 'message' => gettext('The enrollment token or callback URI is invalid.')];
-        }
-
         $jobId = bin2hex(random_bytes(16));
         $tokenPath = '/var/tmp/usque-enroll-' . $jobId . '.jwt';
         $handle = @fopen($tokenPath, 'x+b');
@@ -178,12 +170,66 @@ class EnrollmentController extends ApiControllerBase
         }
 
         try {
-            (new Backend())->configdpRun('usque client_register', [$jobId, strtolower($uuid)], true);
+            (new Backend())->configdpRun('usque ' . $action, [$jobId, strtolower($uuid)], true);
         } catch (\Throwable $error) {
             @unlink($tokenPath);
             return ['status' => 'failed', 'message' => gettext('Unable to start the enrollment job.')];
         }
         return ['status' => 'started', 'job_id' => $jobId];
+    }
+
+    public function registerAction($uuid)
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed'];
+        }
+        $node = $this->getClientTunnel($uuid);
+        if ($node === null) {
+            return ['status' => 'failed', 'message' => gettext('Select an egress client tunnel.')];
+        }
+        $registration = $this->getRegistrationState($uuid, 'client');
+        if (!$registration['can_register']) {
+            return ['status' => 'failed', 'message' => $registration['message']];
+        }
+        if ((string)$this->request->getPost('accept_tos') !== '1') {
+            return ['status' => 'failed', 'message' => gettext('Cloudflare Terms of Service must be accepted explicitly.')];
+        }
+
+        $team = strtolower((string)$node->team);
+        $token = $this->extractToken($this->request->getPost('token'), $team);
+        if ($token === null) {
+            return ['status' => 'failed', 'message' => gettext('The enrollment token or callback URI is invalid.')];
+        }
+        return $this->startRegistration($uuid, $token, 'client_register');
+    }
+
+    public function meshRegisterAction($uuid)
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed'];
+        }
+        if ($this->getMeshTunnel($uuid) === null) {
+            return ['status' => 'failed', 'message' => gettext('Select an ingress Mesh tunnel.')];
+        }
+        $registration = $this->getRegistrationState($uuid, 'mesh-node');
+        if (!$registration['can_register']) {
+            return ['status' => 'failed', 'message' => $registration['message']];
+        }
+        if ((string)$this->request->getPost('accept_tos') !== '1') {
+            return ['status' => 'failed', 'message' => gettext('Cloudflare Terms of Service must be accepted explicitly.')];
+        }
+        if ((string)$this->request->getPost('acknowledge_linux_platform_claim') !== '1') {
+            return [
+                'status' => 'failed',
+                'message' => gettext('The Linux platform compatibility claim and its risks must be acknowledged explicitly.'),
+            ];
+        }
+
+        $token = $this->extractToken($this->request->getPost('token'), '');
+        if ($token === null) {
+            return ['status' => 'failed', 'message' => gettext('The Mesh connector token is invalid.')];
+        }
+        return $this->startRegistration($uuid, $token, 'mesh_register');
     }
 
     public function statusAction($jobId)

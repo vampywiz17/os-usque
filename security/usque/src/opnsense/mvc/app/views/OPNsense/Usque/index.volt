@@ -2,8 +2,10 @@
     let enrollmentTunnel = null;
     let enrollmentPoll = null;
     let enrollmentStateRequest = 0;
+    let enrollmentStatusTarget = "#enrollmentStatus";
+    let enrollmentSecretTarget = "#enrollmentToken";
 
-    function selectedClientTunnel()
+    function selectedTunnel(role)
     {
         const grid = $("#{{ formGridTunnel['table_id'] }}");
         const selected = grid.bootgrid("getSelectedRows");
@@ -14,15 +16,27 @@
         const row = grid.bootgrid("getCurrentRows").find(function(candidate) {
             return String(candidate.uuid) === selectedId;
         });
-        return row !== undefined && row.role === "client" ? row.uuid : null;
+        return row !== undefined && row.role === role ? row.uuid : null;
+    }
+
+    function selectedClientTunnel()
+    {
+        return selectedTunnel("client");
+    }
+
+    function selectedMeshTunnel()
+    {
+        return selectedTunnel("mesh-node");
     }
 
     function updateEnrollmentButton()
     {
         const requestId = ++enrollmentStateRequest;
-        const tunnelId = selectedClientTunnel();
-        const button = $("#registerClient");
-        button.prop("disabled", true).removeAttr("title");
+        const clientId = selectedClientTunnel();
+        const meshId = selectedMeshTunnel();
+        const tunnelId = clientId || meshId;
+        const button = clientId !== null ? $("#registerClient") : $("#registerMesh");
+        $("#registerClient, #registerMesh").prop("disabled", true).removeAttr("title");
         if (tunnelId === null) {
             return;
         }
@@ -31,7 +45,8 @@
             "/api/usque/enrollment/registration_status/" + tunnelId,
             {},
             function(response) {
-                if (requestId !== enrollmentStateRequest || selectedClientTunnel() !== tunnelId) {
+                const selectedId = selectedClientTunnel() || selectedMeshTunnel();
+                if (requestId !== enrollmentStateRequest || selectedId !== tunnelId) {
                     return;
                 }
                 const canRegister = response.status === "ok" && response.can_register === true;
@@ -46,11 +61,11 @@
     function pollEnrollment(jobId)
     {
         ajaxCall("/api/usque/enrollment/status/" + jobId, {}, function(response) {
-            $("#enrollmentStatus").text(response.message || response.state || "");
+            $(enrollmentStatusTarget).text(response.message || response.state || "");
             if (response.state === "completed" || response.state === "failed") {
                 window.clearInterval(enrollmentPoll);
                 enrollmentPoll = null;
-                $("#enrollmentToken").val("");
+                $(enrollmentSecretTarget).val("");
                 updateEnrollmentButton();
             }
         });
@@ -73,6 +88,8 @@
 
         $("#registerClient").click(function() {
             enrollmentTunnel = selectedClientTunnel();
+            enrollmentStatusTarget = "#enrollmentStatus";
+            enrollmentSecretTarget = "#enrollmentToken";
             if (enrollmentTunnel === null) {
                 return;
             }
@@ -91,6 +108,19 @@
                 $("#enrollmentStatus").text("");
                 $("#enrollmentDialog").modal("show");
             });
+        });
+
+        $("#registerMesh").click(function() {
+            enrollmentTunnel = selectedMeshTunnel();
+            if (enrollmentTunnel === null) {
+                return;
+            }
+            enrollmentStatusTarget = "#meshEnrollmentStatus";
+            enrollmentSecretTarget = "#meshToken";
+            $("#meshToken").val("");
+            $("#meshAcceptTos, #meshAcknowledgeLinux").prop("checked", false);
+            $("#meshEnrollmentStatus").text("");
+            $("#meshEnrollmentDialog").modal("show");
         });
 
         $("#startEnrollment").click(function() {
@@ -125,6 +155,45 @@
             $("#enrollmentToken").val("");
         });
 
+        $("#startMeshEnrollment").click(function() {
+            if (enrollmentTunnel === null) {
+                return;
+            }
+            const token = $("#meshToken").val();
+            const accepted = $("#meshAcceptTos").is(":checked") ? "1" : "0";
+            const acknowledged = $("#meshAcknowledgeLinux").is(":checked") ? "1" : "0";
+            $("#meshToken").val("");
+            $("#meshEnrollmentStatus").text("{{ lang._('Starting Mesh registration...') }}");
+            ajaxCall(
+                "/api/usque/enrollment/mesh_register/" + enrollmentTunnel,
+                {
+                    token: token,
+                    accept_tos: accepted,
+                    acknowledge_linux_platform_claim: acknowledged
+                },
+                function(response) {
+                    if (response.status !== "started") {
+                        $("#meshEnrollmentStatus").text(
+                            response.message || "{{ lang._('Mesh registration could not be started.') }}"
+                        );
+                        return;
+                    }
+                    $("#meshEnrollmentStatus").text("{{ lang._('Mesh registration worker started.') }}");
+                    if (enrollmentPoll !== null) {
+                        window.clearInterval(enrollmentPoll);
+                    }
+                    pollEnrollment(response.job_id);
+                    enrollmentPoll = window.setInterval(function() {
+                        pollEnrollment(response.job_id);
+                    }, 2000);
+                }
+            );
+        });
+
+        $("#meshEnrollmentDialog").on("hidden.bs.modal", function() {
+            $("#meshToken").val("");
+        });
+
         $("#applyService").click(function() {
             const button = $(this);
             saveFormToEndpoint("/api/usque/settings/set_general", "frm_general_settings", function() {
@@ -156,6 +225,10 @@
         <button id="registerClient" class="btn btn-primary" type="button" disabled>
             <i class="fa fa-cloud-upload"></i>
             {{ lang._('Register selected egress client') }}
+        </button>
+        <button id="registerMesh" class="btn btn-primary" type="button" disabled>
+            <i class="fa fa-cloud-upload"></i>
+            {{ lang._('Register selected Mesh node') }}
         </button>
         <button id="applyService" class="btn btn-primary" type="button">
             <i class="fa fa-check"></i>
@@ -208,6 +281,47 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Close') }}</button>
                 <button type="button" class="btn btn-primary" id="startEnrollment">{{ lang._('Register') }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="meshEnrollmentDialog" tabindex="-1" role="dialog" aria-labelledby="meshEnrollmentTitle">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="{{ lang._('Close') }}">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title" id="meshEnrollmentTitle">{{ lang._('Cloudflare Mesh node registration') }}</h4>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    {{ lang._('Cloudflare currently documents Mesh nodes for its Linux client. This independent FreeBSD implementation must make an acknowledged Linux compatibility claim during registration. It is not an official client; Cloudflare may detect, reject, restrict, or sanction its use. Use is entirely at your own risk, and the authors accept no liability for resulting account or service action.') }}
+                </div>
+                <p>
+                    {{ lang._('Paste the connector token generated for this Mesh node. The token is passed once through a root-only temporary file and is not saved in config.xml or application logs.') }}
+                </p>
+                <div class="form-group">
+                    <label for="meshToken">{{ lang._('Mesh connector token') }}</label>
+                    <textarea id="meshToken" class="form-control" rows="4" autocomplete="off" spellcheck="false"></textarea>
+                </div>
+                <div class="checkbox">
+                    <label>
+                        <input id="meshAcceptTos" type="checkbox">
+                        {{ lang._('I accept the Cloudflare Application Terms for this registration.') }}
+                    </label>
+                </div>
+                <div class="checkbox">
+                    <label>
+                        <input id="meshAcknowledgeLinux" type="checkbox">
+                        {{ lang._('I understand and accept the Linux platform compatibility claim and its risks.') }}
+                    </label>
+                </div>
+                <p id="meshEnrollmentStatus" class="help-block" aria-live="polite"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Close') }}</button>
+                <button type="button" class="btn btn-primary" id="startMeshEnrollment">{{ lang._('Register Mesh node') }}</button>
             </div>
         </div>
     </div>

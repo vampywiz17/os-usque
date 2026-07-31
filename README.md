@@ -16,8 +16,8 @@ OPNsense. The Rust client remains responsible only for registration, the TUN
 interface and its standards-based QUIC/MASQUE data plane.
 
 > [!WARNING]
-> This repository is under active development. Enrollment is implemented, but
-> service lifecycle is implemented, but routing integration is not production-ready.
+> This repository is under active development. Enrollment and service
+> lifecycle are implemented, but routing integration is not production-ready.
 
 ## Repository boundary
 
@@ -39,6 +39,32 @@ Its standard FreeBSD port lives at `ports/security/usque-nativetun`. The port
 uses the official Cargo ports framework, an exact source commit, a committed
 Cargo lockfile and checksummed crate distfiles. No tunnel, QUIC, MASQUE or TUN
 behavior is patched for OPNsense packaging.
+
+## Installation from a release
+
+Release assets are built for **OPNsense 26.7 / FreeBSD 15 amd64** only. Download
+both packages from the matching GitHub release and copy them to the firewall,
+for example to `/tmp`. The native tunnel package must be installed before the
+plugin:
+
+```sh
+pkg install -f /tmp/usque-nativetun-0.7.0.pkg
+pkg install -f /tmp/os-usque-0.2_10.pkg
+service configd restart
+```
+
+Then open **VPN -> usque** in the OPNsense web interface. Create and register an
+egress client or an ingress Mesh node, enable the service and instance, and
+choose **Apply changes**. The package installation does not create routes,
+gateways, firewall rules, NAT or interface assignments automatically; those
+remain explicit OPNsense administrator actions.
+
+Before upgrading either package, disable the usque service and choose **Apply
+changes** so the managed TUN processes stop cleanly. Install the updated native
+package first, then the plugin package, and restart `configd` as shown above.
+
+These are experimental packages. Do not install them on another OPNsense major
+version or FreeBSD ABI.
 
 ## Quick validation
 
@@ -83,7 +109,8 @@ The current foundation contains:
 - OPNsense-compatible package metadata;
 - an MVC model for global settings and multiple role-separated instances;
 - menu and ACL declarations;
-- a native tunnel CRUD page and browser-assisted egress enrollment workflow;
+- a native tunnel CRUD page, browser-assisted egress enrollment and explicit
+  connector-token Mesh registration workflows;
 - configured native FreeBSD `tunN` interfaces published through the standard
   OPNsense virtual-device hook;
 - native rc.d/configd lifecycle management with one supervised FreeBSD
@@ -92,9 +119,8 @@ The current foundation contains:
 - pinned OPNsense 26.7 validation and packaging helpers;
 - a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.7.0.
 
-Mesh enrollment UI, interface assignment automation and routing integration
-are not implemented yet. Egress enrollment creates the root-only per-instance
-configuration consumed by the service layer.
+Interface assignment automation and routing integration are not implemented
+yet. Both enrollment paths create the root-only per-instance configuration.
 
 ## Independence and truthful operation
 
@@ -144,6 +170,28 @@ OPNsense does not register or imitate that protocol handler; the one-time
 callback is pasted back manually. A fully automatic HTTPS callback should only
 be added if Cloudflare documents a third-party redirect mechanism.
 
+## Mesh node registration
+
+Select an ingress Mesh instance and choose **Register selected Mesh node**.
+Paste the Cloudflare connector token generated for that node, then explicitly
+accept both the Cloudflare Application Terms and the unsupported-platform
+acknowledgement. The plugin invokes the existing
+`usque-nativetun mesh-register --token-file` interface with the required
+`--acknowledge-linux-platform-claim` flag; it does not reimplement the
+Cloudflare protocol or alter the Rust tunnel engine.
+
+Cloudflare currently documents Mesh nodes for its Linux client. The independent
+FreeBSD implementation therefore makes a disclosed Linux compatibility claim
+only after explicit operator acknowledgement. It does not claim to be the
+official client. Cloudflare may detect, reject, restrict or sanction its use;
+the operator assumes that risk and the authors accept no liability for account
+or service action.
+
+The connector token uses the same bounded, one-use, mode-0600 handoff and root
+worker boundary as egress enrollment. It is never written to `config.xml`,
+command arguments, application logs or asynchronous status files. The plugin
+does not create Cloudflare routes or OPNsense policy automatically.
+
 ## Service lifecycle
 
 Enable the service and each registered instance, then choose **Apply changes**.
@@ -166,6 +214,10 @@ service records each managed interface in a root-owned mode-0600 state file,
 stops its validated supervisor and child, and then destroys only that recorded
 cloned TUN device.
 
+The lifecycle worker maps roles to the Rust CLI explicitly: egress instances
+run the `nativetun` subcommand with `--always-reconnect`, while ingress
+instances run the self-maintaining `mesh-node` subcommand.
+
 OPNsense interface assignments are persistent configuration keyed by the
 stable `tunN` name. Destroying the runtime device during a stop does not delete
 its assignment; it is temporarily down and reconnects when tun-rs recreates
@@ -175,3 +227,12 @@ NAT configuration remain explicit OPNsense administrator actions.
 
 Applying the configuration also writes `/etc/rc.conf.d/usque`, so enabled
 instances are restored by the normal FreeBSD rc order during boot.
+
+Before deleting any tunnel row, disable the global usque service and choose
+**Apply changes**. The API and root worker both enforce this condition. The
+worker also refuses deletion while a managed PID or TUN ownership state exists.
+After validating the UUID, role, ownership, permissions, link count and inode,
+deleting the row removes its matching private registration JSON. This prevents
+orphaned credentials while ensuring a running service cannot lose the
+configuration it is using. Interface assignments remain separate OPNsense
+configuration and are not removed implicitly.

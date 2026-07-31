@@ -89,6 +89,25 @@ class ServiceLifecycleTests(unittest.TestCase):
         self.assertIn("--always-reconnect", command)
         self.assertEqual(message, "tun0: started")
 
+    def test_start_uses_mesh_node_subcommand_without_redundant_reconnect_flag(self):
+        instance = dict(self.instance)
+        instance["role"] = "mesh-node"
+        instance["interface"] = "tun1"
+        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch.object(service, "read_pid", side_effect=[None, 101, 202]), \
+                patch.object(service, "interface_exists", side_effect=[False, True]), \
+                patch.object(service.subprocess, "run", return_value=completed) as run:
+            message = service.start(instance)
+
+        command = run.call_args.args[0]
+        binary_index = command.index(str(service.BINARY))
+        self.assertEqual(command[binary_index + 1], "mesh-node")
+        self.assertNotIn("nativetun", command[binary_index + 1:])
+        self.assertNotIn("--always-reconnect", command)
+        self.assertIn("--interface-name", command)
+        self.assertEqual(message, "tun1: started")
+
+
     def test_start_rejects_unmanaged_existing_interface(self):
         with patch.object(service, "read_pid", return_value=None), \
                 patch.object(service, "interface_exists", return_value=True), \

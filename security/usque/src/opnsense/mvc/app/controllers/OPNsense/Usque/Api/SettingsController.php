@@ -29,6 +29,7 @@
 namespace OPNsense\Usque\Api;
 
 use OPNsense\Base\ApiMutableModelControllerBase;
+use OPNsense\Core\Backend;
 use OPNsense\Core\Config;
 
 class SettingsController extends ApiMutableModelControllerBase
@@ -88,6 +89,45 @@ class SettingsController extends ApiMutableModelControllerBase
 
     public function delTunnelAction($uuid)
     {
+        if (
+            !$this->request->isPost() ||
+            !is_string($uuid) ||
+            preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $uuid) !== 1
+        ) {
+            return ['result' => 'failed', 'message' => gettext('Invalid tunnel deletion request.')];
+        }
+
+        $model = $this->getModel();
+        if (!empty((string)$model->general->enabled)) {
+            return [
+                'result' => 'failed',
+                'message' => gettext('Disable the usque service and apply the change before deleting a tunnel.'),
+            ];
+        }
+        $node = $model->getNodeByReference('tunnels.tunnel.' . $uuid);
+        if ($node === null || !in_array((string)$node->role, ['client', 'mesh-node'], true)) {
+            return ['result' => 'failed', 'message' => gettext('The tunnel does not exist or has an invalid role.')];
+        }
+
+        try {
+            $response = trim(
+                (new Backend())->configdpRun(
+                    'usque delete_registration',
+                    [strtolower($uuid), (string)$node->role]
+                )
+            );
+            $decoded = json_decode($response, true);
+        } catch (\Throwable $error) {
+            $decoded = null;
+        }
+        if (!is_array($decoded) || ($decoded['status'] ?? '') !== 'ok') {
+            return [
+                'result' => 'failed',
+                'message' => is_string($decoded['message'] ?? null)
+                    ? $decoded['message']
+                    : gettext('Unable to remove the private tunnel registration.'),
+            ];
+        }
         return $this->delBase('tunnels.tunnel', $uuid);
     }
 
