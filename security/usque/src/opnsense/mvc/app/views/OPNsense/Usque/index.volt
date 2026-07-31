@@ -26,8 +26,7 @@
     }
 
     $(document).ready(function() {
-        const grid = $("#{{ formGridTunnel['table_id'] }}");
-        grid.UIBootgrid({
+        const grid = $("#{{ formGridTunnel['table_id'] }}").UIBootgrid({
             search: "/api/usque/settings/search_tunnel/",
             get: "/api/usque/settings/get_tunnel/",
             set: "/api/usque/settings/set_tunnel/",
@@ -35,7 +34,10 @@
             del: "/api/usque/settings/del_tunnel/",
             toggle: "/api/usque/settings/toggle_tunnel/"
         });
-        grid.on("selected.rs.jquery.bootgrid deselected.rs.jquery.bootgrid", updateEnrollmentButton);
+        grid
+            .on("selected.rs.jquery.bootgrid", updateEnrollmentButton)
+            .on("deselected.rs.jquery.bootgrid", updateEnrollmentButton)
+            .on("loaded.rs.jquery.bootgrid", updateEnrollmentButton);
 
         $("#registerClient").click(function() {
             enrollmentTunnel = selectedTunnel();
