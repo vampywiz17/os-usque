@@ -1,5 +1,5 @@
 PORTNAME=	usque-nativetun
-DISTVERSION=	0.7.0
+DISTVERSION=	0.8.0
 CATEGORIES=	security net-vpn
 
 MAINTAINER=	vampywiz17@users.noreply.github.com
@@ -14,7 +14,7 @@ USES=		cargo cmake:indirect ninja:build pkgconfig
 USE_GITHUB=	yes
 GH_ACCOUNT=	vampywiz17
 GH_PROJECT=	usque-rs-bsd
-GH_TAGNAME=	f679abe2c90011255bbf692a6492dcde46c09947
+GH_TAGNAME=	22b06a93a6c3c40b85864f39415d5cce0dfeb618
 
 .include "Makefile.crates"
 

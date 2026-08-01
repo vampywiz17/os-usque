@@ -49,8 +49,8 @@ for example to `/tmp`. The native tunnel package must be installed before the
 plugin:
 
 ```sh
-pkg install -f /tmp/usque-nativetun-0.7.0.pkg
-pkg install -f /tmp/os-usque-0.2_10.pkg
+pkg install -f /tmp/usque-nativetun-0.8.0.pkg
+pkg install -f /tmp/os-usque-0.2_12.pkg
 service configd restart
 ```
 
@@ -118,7 +118,7 @@ The current foundation contains:
   `daemon(8)` process per enabled instance;
 - an Apply action that renders runtime metadata and reconciles all instances;
 - pinned OPNsense 26.7 validation and packaging helpers;
-- a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.7.0.
+- a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.8.0.
 
 Interface assignment automation and Mesh return-route reconciliation are implemented. Both enrollment paths create the root-only per-instance configuration.
 
