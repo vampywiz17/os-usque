@@ -47,5 +47,5 @@ Do not change the Rust tunnel engine merely to accommodate plugin packaging.
 The initial port was built on FreeBSD 15.0 amd64 with Rust 1.96.1. It passed
 checksum, stage QA, plist, and package creation checks. The resulting stripped
 PIE executable linked only to FreeBSD base-system libraries and reported
-`usque-nativetun` 0.8.0 with both native TUN client and optional Mesh node
+`usque-nativetun` 0.8.1 with both native TUN client and optional Mesh node
 modes.

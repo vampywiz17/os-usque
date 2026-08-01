@@ -1,4 +1,4 @@
-TIMESTAMP = 1785580878
+TIMESTAMP = 1785625004
 SHA256 (rust/crates/aho-corasick-1.1.4.crate) = ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301
 SIZE (rust/crates/aho-corasick-1.1.4.crate) = 184015
 SHA256 (rust/crates/android_system_properties-0.1.5.crate) = 819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311
@@ -601,5 +601,5 @@ SHA256 (rust/crates/zerovec-derive-0.11.3.crate) = 625dc425cab0dca6dc3c3319506e6
 SIZE (rust/crates/zerovec-derive-0.11.3.crate) = 22115
 SHA256 (rust/crates/zmij-1.0.23.crate) = 29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b
 SIZE (rust/crates/zmij-1.0.23.crate) = 28612
-SHA256 (vampywiz17-usque-rs-bsd-0.8.0-22b06a93a6c3c40b85864f39415d5cce0dfeb618_GH0.tar.gz) = 30b754119261563c91ffe2c0243aed563e218ef918626dd9303825c228b99616
-SIZE (vampywiz17-usque-rs-bsd-0.8.0-22b06a93a6c3c40b85864f39415d5cce0dfeb618_GH0.tar.gz) = 95287
+SHA256 (vampywiz17-usque-rs-bsd-0.8.1-1647df0af94c3fa1ee61060a67790df28db2b386_GH0.tar.gz) = 229e346a7f184d3407688c723b9ec0f469aab07dfbc58c5ed5d2e4f910ec0045
+SIZE (vampywiz17-usque-rs-bsd-0.8.1-1647df0af94c3fa1ee61060a67790df28db2b386_GH0.tar.gz) = 96926
