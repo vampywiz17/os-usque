@@ -29,6 +29,21 @@
         return selectedTunnel("mesh-node");
     }
 
+    function updateMeshReturnRouteFields()
+    {
+        const isMeshNode = $("#tunnel\\.role").val() === "mesh-node";
+        const meshRouteRows = $(
+            "#row_tunnel\\.mesh_return_routes_enabled, " +
+            "#row_tunnel\\.mesh_return_route_ipv4, " +
+            "#row_tunnel\\.mesh_return_route_ipv6"
+        );
+        if (isMeshNode) {
+            meshRouteRows.show();
+        } else {
+            meshRouteRows.hide();
+        }
+    }
+
     function updateEnrollmentButton()
     {
         const requestId = ++enrollmentStateRequest;
@@ -85,6 +100,11 @@
             .on("selected.rs.jquery.bootgrid", updateEnrollmentButton)
             .on("deselected.rs.jquery.bootgrid", updateEnrollmentButton)
             .on("loaded.rs.jquery.bootgrid", updateEnrollmentButton);
+
+        $("#{{ formGridTunnel['edit_dialog_id'] }}")
+            .on("opnsense_bootgrid_mapped", updateMeshReturnRouteFields);
+        $("#tunnel\\.role")
+            .on("change.usqueMeshReturnRoutes", updateMeshReturnRouteFields);
 
         $("#registerClient").click(function() {
             enrollmentTunnel = selectedClientTunnel();

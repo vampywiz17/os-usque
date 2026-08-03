@@ -50,7 +50,7 @@ plugin:
 
 ```sh
 pkg install -f /tmp/usque-nativetun-0.8.1.pkg
-pkg install -f /tmp/os-usque-0.2_15.pkg
+pkg install -f /tmp/os-usque-0.2_16.pkg
 service configd restart
 ```
 
@@ -129,8 +129,10 @@ instance enables return-route management by default and starts with Cloudflare's
 currently known ranges: `100.96.0.0/12` and `2606:4700:cf1:1000::/64`.
 Operators can disable this management when OPNsense owns routing elsewhere, or
 replace either CIDR with the network assigned to that Mesh deployment. Leaving
-one family empty intentionally omits that family. Every configured CIDR is
-strictly parsed before the lifecycle worker can call FreeBSD `route(8)`.
+one family empty intentionally omits that family. These controls are shown only
+for the ingress Mesh role; egress client dialogs do not expose irrelevant
+routing settings. Every configured CIDR is strictly parsed before the lifecycle
+worker can call FreeBSD `route(8)`.
 
 After a **Mesh node** is ready, the plugin installs these native FreeBSD
 `route(8) -interface` routes. They use the point-to-point TUN name rather
