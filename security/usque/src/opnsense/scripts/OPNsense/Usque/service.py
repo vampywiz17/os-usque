@@ -23,9 +23,9 @@ CONFIG_DIR = Path("/usr/local/etc/usque/instances")
 RUN_DIR = Path("/var/run/usque")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 INTERFACE_RE = re.compile(r"^tun[0-9]{1,3}$")
-MESH_RETURN_ROUTES = (
-    ("inet", "100.96.0.0/12", "100.96.0.1"),
-    ("inet6", "2606:4700:cf1:1000::/64", "2606:4700:cf1:1000::1"),
+DEFAULT_MESH_RETURN_ROUTES = (
+    ("inet", "100.96.0.0/12"),
+    ("inet6", "2606:4700:cf1:1000::/64"),
 )
 
 
@@ -52,6 +52,38 @@ def secure_json(path: Path, maximum: int, require_private: bool) -> dict:
     finally:
         os.close(descriptor)
 
+
+
+def normalized_route(family: str, destination: str) -> tuple[str, str]:
+    if family not in {"inet", "inet6"} or not isinstance(destination, str):
+        raise ValueError("invalid managed route")
+    try:
+        network = ipaddress.ip_network(destination, strict=True)
+    except ValueError as error:
+        raise ValueError(f"invalid managed route destination: {destination!r}") from error
+    if (family == "inet") != (network.version == 4):
+        raise ValueError("managed route address family does not match its destination")
+    return family, str(network)
+
+
+def route_probe(destination: str) -> str:
+    network = ipaddress.ip_network(destination, strict=True)
+    return str(network.network_address + 1) if network.num_addresses > 1 else str(network.network_address)
+
+
+def mesh_return_routes(instance: dict) -> list[tuple[str, str]]:
+    if instance["role"] != "mesh-node":
+        return []
+    enabled = instance.get("mesh_return_routes_enabled", True)
+    if not isinstance(enabled, bool):
+        raise ValueError("invalid Mesh return-route enablement")
+    if not enabled:
+        return []
+    configured = (
+        ("inet", instance.get("mesh_return_route_ipv4", DEFAULT_MESH_RETURN_ROUTES[0][1])),
+        ("inet6", instance.get("mesh_return_route_ipv6", DEFAULT_MESH_RETURN_ROUTES[1][1])),
+    )
+    return [normalized_route(family, destination) for family, destination in configured if destination]
 
 def load_instances() -> list[dict]:
     manifest = secure_json(MANIFEST, 1048576, False)
@@ -80,7 +112,17 @@ def load_instances() -> list[dict]:
             continue
         if registered.get("role", "client") != role:
             raise ValueError(f"role mismatch in {config}")
-        result.append({"id": tunnel_id, "interface": interface, "role": role, "config": config})
+        instance = {
+            "id": tunnel_id,
+            "interface": interface,
+            "role": role,
+            "config": config,
+            "mesh_return_routes_enabled": item.get("mesh_return_routes_enabled", True),
+            "mesh_return_route_ipv4": item.get("mesh_return_route_ipv4", DEFAULT_MESH_RETURN_ROUTES[0][1]),
+            "mesh_return_route_ipv6": item.get("mesh_return_route_ipv6", DEFAULT_MESH_RETURN_ROUTES[1][1]),
+        }
+        instance["mesh_return_routes"] = mesh_return_routes(instance)
+        result.append(instance)
     return result
 
 
@@ -131,10 +173,11 @@ def read_interface_state(tunnel_id: str) -> str | None:
 def write_interface_state(tunnel_id: str, interface: str, routes: list[tuple[str, str]] | None = None) -> None:
     if not INTERFACE_RE.fullmatch(interface):
         raise ValueError("invalid managed TUN interface")
-    valid = {(family, destination) for family, destination, _ in MESH_RETURN_ROUTES}
     routes = [] if routes is None else routes
-    if any(route not in valid for route in routes):
-        raise ValueError("invalid managed Mesh route")
+    try:
+        routes = [normalized_route(*route) for route in routes]
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid managed Mesh route") from error
     destination = state_path(tunnel_id)
     temporary = RUN_DIR / f".{tunnel_id}.{os.getpid()}.tmp"
     payload = json.dumps({
@@ -174,19 +217,23 @@ def owned_mesh_routes(tunnel_id: str) -> tuple[str, list[tuple[str, str]]] | Non
     routes = state.get("mesh_return_routes", [])
     if not isinstance(routes, list):
         return interface, []
-    valid = {(family, destination) for family, destination, _ in MESH_RETURN_ROUTES}
     result = []
     for route in routes:
         if not isinstance(route, dict):
             continue
         value = (str(route.get("family", "")), str(route.get("destination", "")))
-        if value in valid and str(route.get("interface", "")) == interface:
+        try:
+            owned = normalized_route(*value)
+        except ValueError:
+            continue
+        if owned == value and str(route.get("interface", "")) == interface:
             result.append(value)
     return interface, result
 
 
 def route_command(action: str, family: str, destination: str, interface: str) -> list[str]:
-    if family not in {"inet", "inet6"} or not INTERFACE_RE.fullmatch(interface):
+    family, destination = normalized_route(family, destination)
+    if action not in {"add", "delete"} or not INTERFACE_RE.fullmatch(interface):
         raise ValueError("invalid managed route")
     return [
         str(ROUTE), "-n", "-4" if family == "inet" else "-6",
@@ -195,11 +242,9 @@ def route_command(action: str, family: str, destination: str, interface: str) ->
 
 
 def install_mesh_return_routes(instance: dict) -> None:
-    if instance["role"] != "mesh-node":
-        return
     interface = instance["interface"]
     installed = []
-    for family, destination, _ in MESH_RETURN_ROUTES:
+    for family, destination in instance.get("mesh_return_routes", mesh_return_routes(instance)):
         result = subprocess.run(
             route_command("add", family, destination, interface),
             capture_output=True, text=True, check=False,
@@ -243,10 +288,9 @@ def remove_owned_mesh_return_routes(tunnel_id: str) -> None:
     if state is None:
         return
     interface, routes = state
-    probes = {(family, destination): probe for family, destination, probe in MESH_RETURN_ROUTES}
     remaining = list(routes)
     for family, destination in routes:
-        if route_matches_owner(family, destination, probes[(family, destination)], interface):
+        if route_matches_owner(family, destination, route_probe(destination), interface):
             result = subprocess.run(
                 route_command("delete", family, destination, interface),
                 capture_output=True, text=True, check=False,

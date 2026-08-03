@@ -8,7 +8,10 @@
       "enabled": {{ "true" if tunnel.enabled == '1' else "false" }},
       "name": {{ tunnel.name | tojson }},
       "role": {{ tunnel.role | tojson }},
-      "interface": {{ tunnel.interface | tojson }}
+      "interface": {{ tunnel.interface | tojson }},
+      "mesh_return_routes_enabled": {{ "false" if tunnel.mesh_return_routes_enabled == "0" else "true" }},
+      "mesh_return_route_ipv4": {{ tunnel.mesh_return_route_ipv4 | tojson }},
+      "mesh_return_route_ipv6": {{ tunnel.mesh_return_route_ipv6 | tojson }}
     }{{ "," if not loop.last else "" }}
 {%   endfor %}
 {% endif %}

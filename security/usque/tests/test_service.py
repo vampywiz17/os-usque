@@ -245,6 +245,37 @@ class ServiceLifecycleTests(unittest.TestCase):
             ],
         ))
 
+    def test_mesh_return_routes_default_to_cloudflare_networks(self):
+        instance = dict(self.instance)
+        instance["role"] = "mesh-node"
+        self.assertEqual(service.mesh_return_routes(instance), [
+            ("inet", "100.96.0.0/12"),
+            ("inet6", "2606:4700:cf1:1000::/64"),
+        ])
+
+    def test_mesh_return_routes_can_be_disabled_or_customized(self):
+        instance = dict(self.instance)
+        instance.update({"role": "mesh-node", "mesh_return_routes_enabled": False})
+        self.assertEqual(service.mesh_return_routes(instance), [])
+        instance.update({
+            "mesh_return_routes_enabled": True,
+            "mesh_return_route_ipv4": "100.120.0.0/16",
+            "mesh_return_route_ipv6": "2606:4700:cf1:2000::/64",
+        })
+        self.assertEqual(service.mesh_return_routes(instance), [
+            ("inet", "100.120.0.0/16"),
+            ("inet6", "2606:4700:cf1:2000::/64"),
+        ])
+
+    def test_mesh_return_routes_reject_noncanonical_or_wrong_family_cidrs(self):
+        instance = dict(self.instance)
+        instance.update({"role": "mesh-node", "mesh_return_route_ipv4": "100.96.1.1/12"})
+        with self.assertRaises(ValueError):
+            service.mesh_return_routes(instance)
+        instance["mesh_return_route_ipv4"] = "2606:4700:cf1:2000::/64"
+        with self.assertRaises(ValueError):
+            service.mesh_return_routes(instance)
+
     def test_route_cleanup_does_not_delete_externally_replaced_route(self):
         state = {
             "interface": "tun1",

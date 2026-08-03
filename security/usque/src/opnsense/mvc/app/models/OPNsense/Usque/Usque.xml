@@ -45,6 +45,16 @@
                         <type>UniqueConstraint</type>
                     </check001>
                 </Constraints>
+            <mesh_return_routes_enabled type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </mesh_return_routes_enabled>
+            <mesh_return_route_ipv4 type="TextField">
+                <Default>100.96.0.0/12</Default>
+            </mesh_return_route_ipv4>
+            <mesh_return_route_ipv6 type="TextField">
+                <Default>2606:4700:cf1:1000::/64</Default>
+            </mesh_return_route_ipv6>
             <team type="TextField">
                 <Mask>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/</Mask>
                 <ValidationMessage>Use the Cloudflare team subdomain only.</ValidationMessage>

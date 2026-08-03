@@ -84,10 +84,14 @@ No controller may interpolate unvalidated values into a shell command. Configd
 ## Mesh return-path ownership
 
 Cloudflare's default Mesh Device IP networks are `100.96.0.0/12` and
-`2606:4700:cf1:1000::/64`. A Mesh node that publishes a downstream network
-requires both return routes through its TUN so replies do not follow the WAN
-default route. Once the Rust Mesh command has created the device, the lifecycle
-worker adds FreeBSD `route(8) -interface` routes for those networks.
+`2606:4700:cf1:1000::/64`. Per ingress Mesh instance, return-route management
+is enabled by default with those values. An operator may disable it completely,
+or provide deployment-specific canonical IPv4 and IPv6 CIDRs; an empty family
+is intentionally omitted. The root lifecycle worker strictly parses each CIDR
+and uses the native FreeBSD `route(8) -interface` form only after the Rust Mesh
+command has created the device. A node that publishes a downstream network
+needs the applicable return routes through its TUN so replies do not follow the
+WAN default route.
 
 The routes are limited to the Mesh role. Each is recorded after a successful
 add in the same private runtime state as the TUN. During shutdown the worker

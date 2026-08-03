@@ -50,7 +50,7 @@ plugin:
 
 ```sh
 pkg install -f /tmp/usque-nativetun-0.8.1.pkg
-pkg install -f /tmp/os-usque-0.2_13.pkg
+pkg install -f /tmp/os-usque-0.2_14.pkg
 service configd restart
 ```
 
@@ -124,11 +124,13 @@ Interface assignment automation and Mesh return-route reconciliation are impleme
 
 ## Mesh return routes
 
-Cloudflare Mesh clients use the configured Device IP ranges. With Cloudflare's
-default ranges, a node that routes a downstream network must return
-`100.96.0.0/12` and `2606:4700:cf1:1000::/64` through the Mesh TUN
-interface. Otherwise a request may arrive over Mesh while its reply follows
-the WAN default gateway.
+Cloudflare Mesh clients use the configured Device IP ranges. Each ingress Mesh
+instance enables return-route management by default and starts with Cloudflare's
+currently known ranges: `100.96.0.0/12` and `2606:4700:cf1:1000::/64`.
+Operators can disable this management when OPNsense owns routing elsewhere, or
+replace either CIDR with the network assigned to that Mesh deployment. Leaving
+one family empty intentionally omits that family. Every configured CIDR is
+strictly parsed before the lifecycle worker can call FreeBSD `route(8)`.
 
 After a **Mesh node** is ready, the plugin installs these native FreeBSD
 `route(8) -interface` routes. They use the point-to-point TUN name rather

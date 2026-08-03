@@ -35,6 +35,33 @@
         <help>Zero Trust team subdomain without .cloudflareaccess.com. Required only for browser-assisted egress client enrollment.</help>
     </field>
     <field>
+        <id>tunnel.mesh_return_routes_enabled</id>
+        <label>Manage Mesh return routes</label>
+        <type>checkbox</type>
+        <help>For an ingress Mesh node, install the configured Device IP return routes through this TUN after it is ready. Enabled by default; disable when routing is managed separately.</help>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+    <field>
+        <id>tunnel.mesh_return_route_ipv4</id>
+        <label>Mesh return route IPv4 CIDR</label>
+        <type>text</type>
+        <help>Cloudflare Mesh Device IPv4 network returned through this TUN, for example 100.96.0.0/12. Leave empty to omit the IPv4 route. Used only for enabled ingress Mesh nodes.</help>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+    <field>
+        <id>tunnel.mesh_return_route_ipv6</id>
+        <label>Mesh return route IPv6 CIDR</label>
+        <type>text</type>
+        <help>Cloudflare Mesh Device IPv6 network returned through this TUN, for example 2606:4700:cf1:1000::/64. Leave empty to omit the IPv6 route. Used only for enabled ingress Mesh nodes.</help>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+    <field>
         <id>tunnel.description</id>
         <label>Description</label>
         <type>text</type>
