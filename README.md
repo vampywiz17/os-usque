@@ -50,7 +50,7 @@ plugin:
 
 ```sh
 pkg install -f /tmp/usque-nativetun-0.8.1.pkg
-pkg install -f /tmp/os-usque-0.2_14.pkg
+pkg install -f /tmp/os-usque-0.2_15.pkg
 service configd restart
 ```
 

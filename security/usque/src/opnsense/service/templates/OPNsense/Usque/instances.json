@@ -9,9 +9,9 @@
       "name": {{ tunnel.name | tojson }},
       "role": {{ tunnel.role | tojson }},
       "interface": {{ tunnel.interface | tojson }},
-      "mesh_return_routes_enabled": {{ "false" if tunnel.mesh_return_routes_enabled == "0" else "true" }},
-      "mesh_return_route_ipv4": {{ tunnel.mesh_return_route_ipv4 | tojson }},
-      "mesh_return_route_ipv6": {{ tunnel.mesh_return_route_ipv6 | tojson }}
+      "mesh_return_routes_enabled": {{ "false" if tunnel.mesh_return_routes_enabled|default("1") == "0" else "true" }},
+      "mesh_return_route_ipv4": {{ tunnel.mesh_return_route_ipv4|default("100.96.0.0/12") | tojson }},
+      "mesh_return_route_ipv6": {{ tunnel.mesh_return_route_ipv6|default("2606:4700:cf1:1000::/64") | tojson }}
     }{{ "," if not loop.last else "" }}
 {%   endfor %}
 {% endif %}
