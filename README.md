@@ -16,9 +16,16 @@ OPNsense. The Rust client remains responsible only for registration, the TUN
 interface and its standards-based QUIC/MASQUE data plane.
 
 > [!WARNING]
-> This repository is under active development. Enrollment, service lifecycle
-> and the required default Mesh return routes are implemented. General
-> policy-routing integration is not production-ready.
+> This project and its release packages are experimental and are not recommended
+> for production, critical, or otherwise irreplaceable firewall installations.
+> Installation, upgrades, routing changes, or software defects may interrupt
+> connectivity or leave the system in a state that requires manual recovery.
+> Before installing or upgrading, export the OPNsense configuration and create
+> a verified, restorable backup; for virtual appliances, a hypervisor snapshot
+> is also recommended but should not replace the configuration backup. Test the
+> recovery procedure and be prepared to restore the backup or reinstall
+> OPNsense if necessary. Use and operational recovery remain the responsibility
+> of the administrator.
 
 ## Repository boundary
 
