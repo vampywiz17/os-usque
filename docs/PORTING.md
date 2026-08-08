@@ -47,8 +47,12 @@ Do not change the Rust tunnel engine merely to accommodate plugin packaging.
 The initial port was built on FreeBSD 15.0 amd64 with Rust 1.96.1. It passed
 checksum, stage QA, plist, and package creation checks. The resulting stripped
 PIE executable linked only to FreeBSD base-system libraries and reported
-`usque-nativetun` 0.8.1 with both native TUN client and optional Mesh node
+`usque-nativetun` 0.8.2 with both native TUN client and optional Mesh node
 modes.
 
-The current 0.8.1 source pin includes the reviewed Cloudflare Access
-service-token registration CLI and its `quick-xml` lockfile dependency.
+The current 0.8.2 source pin retains the reviewed Cloudflare Access
+service-token registration CLI and its `quick-xml` lockfile dependency. It also
+reports the currently running binary version in live headers and telemetry
+instead of reusing historical registration metadata. The Cargo lockfile and
+crate distfiles remain checksummed. No tunnel, QUIC, MASQUE or TUN behavior is
+patched for OPNsense packaging.
