@@ -113,15 +113,16 @@ reconnection accurately.
 
 ## Enrollment privilege boundary
 
-Both enrollment modes are intentionally split across three trust levels:
+All enrollment workflows are intentionally split across three trust levels:
 
 ```text
 authenticated MVC API (www)
-  -> random /var/tmp handoff (0600, token, <= 5 minutes)
+  -> random /var/tmp handoff (0600, <= 5 minutes)
   -> configd action (job UUID + tunnel UUID only)
   -> root enrollment worker
-  -> root-owned JWT file (0600)
-  -> usque-nativetun --jwt-file or mesh-register --token-file
+  -> browser/Mesh: root-owned token file (0600)
+     or service token: XML-escaped root-owned MDM file (0600)
+  -> usque-nativetun --jwt-file, --mdm-file, or mesh-register --token-file
   -> /usr/local/etc/usque/instances/<uuid>.json (0600)
 ```
 
@@ -136,7 +137,12 @@ per-instance configuration with `O_NOFOLLOW`, verifies owner-only metadata and
 the selected role, and returns booleans only. The web process never reads or
 returns the credential-bearing JSON.
 
-The client role accepts the browser callback/JWT workflow. The Mesh role accepts
+The client role accepts either the browser callback/JWT workflow or Cloudflare's
+documented `organization`, `auth_client_id` and `auth_client_secret` MDM
+parameters. Service-token secrets cross the privilege boundary only in a
+bounded one-use JSON handoff, then a root-only XML-escaped MDM file; neither is
+stored in the model, command arguments or resulting client configuration. The
+Mesh role accepts
 only a Cloudflare-generated connector token and requires explicit ToS and Linux
 platform-claim acknowledgements before the existing Rust Mesh registration
 command is invoked. Neither path stores its one-time input in the MVC model.

@@ -160,6 +160,7 @@ CARGO_CRATES=	aho-corasick-1.1.4 \
 		primeorder-0.13.6 \
 		proc-macro2-1.0.107 \
 		quiche-0.29.3 \
+		quick-xml-0.41.0 \
 		quinn-0.11.11 \
 		quinn-proto-0.11.16 \
 		quinn-udp-0.5.15 \

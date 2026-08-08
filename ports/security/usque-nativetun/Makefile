@@ -14,7 +14,7 @@ USES=		cargo cmake:indirect ninja:build pkgconfig
 USE_GITHUB=	yes
 GH_ACCOUNT=	vampywiz17
 GH_PROJECT=	usque-rs-bsd
-GH_TAGNAME=	1647df0af94c3fa1ee61060a67790df28db2b386
+GH_TAGNAME=	a3922d7154f7af3511de783a42b0af65db52ac90
 
 .include "Makefile.crates"
 

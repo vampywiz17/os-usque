@@ -57,7 +57,7 @@ plugin:
 
 ```sh
 pkg install -f /tmp/usque-nativetun-0.8.1.pkg
-pkg install -f /tmp/os-usque-0.2_16.pkg
+pkg install -f /tmp/os-usque-0.2_17.pkg
 service configd restart
 ```
 
@@ -117,8 +117,8 @@ The current foundation contains:
 - OPNsense-compatible package metadata;
 - an MVC model for global settings and multiple role-separated instances;
 - menu and ACL declarations;
-- a native tunnel CRUD page, browser-assisted egress enrollment and explicit
-  connector-token Mesh registration workflows;
+- a native tunnel CRUD page, selectable browser-assisted or Cloudflare Access
+  service-token egress enrollment, and explicit connector-token Mesh registration;
 - configured native FreeBSD `tunN` interfaces published through the standard
   OPNsense virtual-device hook;
 - native rc.d/configd lifecycle management with one supervised FreeBSD
@@ -173,7 +173,13 @@ The OPNsense plugin is licensed under the BSD 2-Clause License, matching the
 OPNsense plugin contribution requirement. The underlying Rust program remains
 under its own MIT license.
 
-## Browser-assisted egress enrollment
+## Egress client registration
+
+Select an egress client and choose either **Browser-assisted identity enrollment**
+or **Cloudflare Access service token**. Both methods produce the same root-owned
+client configuration and leave tunnel behavior unchanged.
+
+### Browser-assisted identity enrollment
 
 The tunnel list stores only non-secret metadata, including the Cloudflare Zero
 Trust team subdomain. Registration follows the documented team enrollment flow:
@@ -203,6 +209,34 @@ Cloudflare's custom protocol normally launches the official desktop client.
 OPNsense does not register or imitate that protocol handler; the one-time
 callback is pasted back manually. A fully automatic HTTPS callback should only
 be added if Cloudflare documents a third-party redirect mechanism.
+
+
+### Cloudflare Access service-token enrollment
+
+This headless option follows Cloudflare's documented managed-deployment
+parameters. Enter the Zero Trust `organization`, Access Client ID and Access
+Client Secret in the registration dialog, explicitly accept the Cloudflare
+Application Terms, and start registration.
+
+Beforehand, create a Cloudflare Access service token and attach a policy with
+action **Service Auth** and selector **Service Token** to the organization's
+Device Enrollment permissions. Cloudflare explicitly states that an **Allow**
+policy does not authorize service-token device enrollment. A successful
+registration normally appears under
+`non_identity@<organization>.cloudflareaccess.com`.
+
+The Access Client ID and secret are transient inputs. They are never added to
+the OPNsense model or `config.xml`. The authenticated PHP API validates them
+and writes a random, mode-0600, five-minute handoff. The root worker securely
+claims it, creates an XML-escaped owner-only `mdm.xml`, and invokes the reviewed
+`usque-nativetun register --mdm-file` interface. Only the temporary file path is
+present in the process arguments. Both handoff and MDM file are unlinked after
+the attempt, whether it succeeds or fails.
+
+The secret remains sensitive at the Cloudflare account level. Use an
+appropriately scoped service token, rotate it according to organization policy,
+and revoke its Device Enrollment policy membership when it must no longer
+create registrations.
 
 ## Mesh node registration
 

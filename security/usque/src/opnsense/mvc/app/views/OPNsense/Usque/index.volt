@@ -73,6 +73,32 @@
         );
     }
 
+    function updateClientEnrollmentMethod()
+    {
+        const browserAssisted = $("#clientEnrollmentMethod").val() === "browser";
+        $("#browserEnrollmentFields").toggle(browserAssisted);
+        $("#serviceTokenEnrollmentFields").toggle(!browserAssisted);
+        $("#enrollmentStatus").text("");
+        if (!browserAssisted || enrollmentTunnel === null) {
+            return;
+        }
+        $("#cloudflareLogin").attr("href", "#");
+        ajaxCall("/api/usque/enrollment/login_url/" + enrollmentTunnel, {}, function(response) {
+            if (response.status === "ok") {
+                $("#cloudflareLogin").attr("href", response.url);
+            } else {
+                $("#enrollmentStatus").text(
+                    response.message || "{{ lang._('Unable to create the Cloudflare login URL.') }}"
+                );
+            }
+        });
+    }
+
+    function clearClientEnrollmentSecrets()
+    {
+        $("#enrollmentToken, #accessClientId, #accessClientSecret").val("");
+    }
+
     function pollEnrollment(jobId)
     {
         ajaxCall("/api/usque/enrollment/status/" + jobId, {}, function(response) {
@@ -81,6 +107,9 @@
                 window.clearInterval(enrollmentPoll);
                 enrollmentPoll = null;
                 $(enrollmentSecretTarget).val("");
+                if (enrollmentStatusTarget === "#enrollmentStatus") {
+                    clearClientEnrollmentSecrets();
+                }
                 updateEnrollmentButton();
             }
         });
@@ -109,26 +138,19 @@
         $("#registerClient").click(function() {
             enrollmentTunnel = selectedClientTunnel();
             enrollmentStatusTarget = "#enrollmentStatus";
-            enrollmentSecretTarget = "#enrollmentToken";
+            enrollmentSecretTarget = "#enrollmentToken, #accessClientId, #accessClientSecret";
             if (enrollmentTunnel === null) {
                 return;
             }
-            ajaxCall("/api/usque/enrollment/login_url/" + enrollmentTunnel, {}, function(response) {
-                if (response.status !== "ok") {
-                    BootstrapDialog.show({
-                        type: BootstrapDialog.TYPE_DANGER,
-                        title: "{{ lang._('Enrollment') }}",
-                        message: response.message || "{{ lang._('Unable to create the Cloudflare login URL.') }}"
-                    });
-                    return;
-                }
-                $("#cloudflareLogin").attr("href", response.url);
-                $("#enrollmentToken").val("");
-                $("#acceptTos").prop("checked", false);
-                $("#enrollmentStatus").text("");
-                $("#enrollmentDialog").modal("show");
-            });
+            clearClientEnrollmentSecrets();
+            $("#accessOrganization").val("");
+            $("#acceptTos").prop("checked", false);
+            $("#enrollmentStatus").text("");
+            $("#clientEnrollmentMethod").val("browser");
+            updateClientEnrollmentMethod();
+            $("#enrollmentDialog").modal("show");
         });
+
 
         $("#registerMesh").click(function() {
             enrollmentTunnel = selectedMeshTunnel();
@@ -143,36 +165,52 @@
             $("#meshEnrollmentDialog").modal("show");
         });
 
+        $("#clientEnrollmentMethod").on("change", updateClientEnrollmentMethod);
+
         $("#startEnrollment").click(function() {
             if (enrollmentTunnel === null) {
                 return;
             }
-            const token = $("#enrollmentToken").val();
+            const method = $("#clientEnrollmentMethod").val();
             const accepted = $("#acceptTos").is(":checked") ? "1" : "0";
-            $("#enrollmentToken").val("");
+            let endpoint;
+            let payload;
+            if (method === "service-token") {
+                endpoint = "/api/usque/enrollment/service_token_register/" + enrollmentTunnel;
+                payload = {
+                    organization: $("#accessOrganization").val(),
+                    auth_client_id: $("#accessClientId").val(),
+                    auth_client_secret: $("#accessClientSecret").val(),
+                    accept_tos: accepted
+                };
+            } else {
+                endpoint = "/api/usque/enrollment/register/" + enrollmentTunnel;
+                payload = {token: $("#enrollmentToken").val(), accept_tos: accepted};
+            }
+            clearClientEnrollmentSecrets();
             $("#enrollmentStatus").text("{{ lang._('Starting enrollment...') }}");
-            ajaxCall(
-                "/api/usque/enrollment/register/" + enrollmentTunnel,
-                {token: token, accept_tos: accepted},
-                function(response) {
-                    if (response.status !== "started") {
-                        $("#enrollmentStatus").text(response.message || "{{ lang._('Enrollment could not be started.') }}");
-                        return;
-                    }
-                    $("#enrollmentStatus").text("{{ lang._('Enrollment worker started.') }}");
-                    if (enrollmentPoll !== null) {
-                        window.clearInterval(enrollmentPoll);
-                    }
-                    pollEnrollment(response.job_id);
-                    enrollmentPoll = window.setInterval(function() {
-                        pollEnrollment(response.job_id);
-                    }, 2000);
+            ajaxCall(endpoint, payload, function(response) {
+                if (response.status !== "started") {
+                    $("#enrollmentStatus").text(
+                        response.message || "{{ lang._('Enrollment could not be started.') }}"
+                    );
+                    return;
                 }
-            );
+                $("#enrollmentStatus").text("{{ lang._('Enrollment worker started.') }}");
+                if (enrollmentPoll !== null) {
+                    window.clearInterval(enrollmentPoll);
+                }
+                pollEnrollment(response.job_id);
+                enrollmentPoll = window.setInterval(function() {
+                    pollEnrollment(response.job_id);
+                }, 2000);
+            });
         });
 
+
         $("#enrollmentDialog").on("hidden.bs.modal", function() {
-            $("#enrollmentToken").val("");
+            clearClientEnrollmentSecrets();
+            $("#accessOrganization").val("");
         });
 
         $("#startMeshEnrollment").click(function() {
@@ -274,21 +312,50 @@
                 <button type="button" class="close" data-dismiss="modal" aria-label="{{ lang._('Close') }}">
                     <span aria-hidden="true">&times;</span>
                 </button>
-                <h4 class="modal-title" id="enrollmentTitle">{{ lang._('Browser-assisted Cloudflare enrollment') }}</h4>
+                <h4 class="modal-title" id="enrollmentTitle">{{ lang._('Cloudflare egress client registration') }}</h4>
             </div>
             <div class="modal-body">
-                <ol>
-                    <li>
-                        <a id="cloudflareLogin" href="#" target="_blank" rel="noopener noreferrer">
-                            {{ lang._('Open the configured Cloudflare team login') }}
-                        </a>
-                    </li>
-                    <li>{{ lang._('Authenticate with the organization identity provider.') }}</li>
-                    <li>{{ lang._('Copy the resulting com.cloudflare.warp callback URI and paste it below. The private device key is generated on OPNsense and never enters the browser.') }}</li>
-                </ol>
                 <div class="form-group">
-                    <label for="enrollmentToken">{{ lang._('One-time callback URI or enrollment JWT') }}</label>
-                    <textarea id="enrollmentToken" class="form-control" rows="4" autocomplete="off" spellcheck="false"></textarea>
+                    <label for="clientEnrollmentMethod">{{ lang._('Registration method') }}</label>
+                    <select id="clientEnrollmentMethod" class="form-control">
+                        <option value="browser">{{ lang._('Browser-assisted identity enrollment') }}</option>
+                        <option value="service-token">{{ lang._('Cloudflare Access service token') }}</option>
+                    </select>
+                </div>
+                <div id="browserEnrollmentFields">
+                    <ol>
+                        <li>
+                            <a id="cloudflareLogin" href="#" target="_blank" rel="noopener noreferrer">
+                                {{ lang._('Open the configured Cloudflare team login') }}
+                            </a>
+                        </li>
+                        <li>{{ lang._('Authenticate with the organization identity provider.') }}</li>
+                        <li>{{ lang._('Copy the resulting com.cloudflare.warp callback URI and paste it below. The private device key is generated on OPNsense and never enters the browser.') }}</li>
+                    </ol>
+                    <div class="form-group">
+                        <label for="enrollmentToken">{{ lang._('One-time callback URI or enrollment JWT') }}</label>
+                        <textarea id="enrollmentToken" class="form-control" rows="4" autocomplete="off" spellcheck="false"></textarea>
+                    </div>
+                </div>
+                <div id="serviceTokenEnrollmentFields" style="display: none;">
+                    <div class="alert alert-info">
+                        {{ lang._('The service token must be included by a Service Auth policy attached to Cloudflare Device Enrollment permissions. An Allow policy is not sufficient.') }}
+                    </div>
+                    <div class="form-group">
+                        <label for="accessOrganization">{{ lang._('Cloudflare Zero Trust organization') }}</label>
+                        <input id="accessOrganization" class="form-control" type="text" maxlength="63" autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="form-group">
+                        <label for="accessClientId">{{ lang._('Access Client ID') }}</label>
+                        <input id="accessClientId" class="form-control" type="text" maxlength="512" autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="form-group">
+                        <label for="accessClientSecret">{{ lang._('Access Client Secret (key)') }}</label>
+                        <input id="accessClientSecret" class="form-control" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false">
+                    </div>
+                    <p class="help-block">
+                        {{ lang._('The Client ID and secret are used once, are not saved in config.xml, and are removed from temporary storage when registration finishes.') }}
+                    </p>
                 </div>
                 <div class="checkbox">
                     <label>

@@ -20,6 +20,10 @@ class EnrollmentController extends ApiControllerBase
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
     private const JOB_PATTERN = '/^[0-9a-f]{32}$/';
     private const MAX_TOKEN_BYTES = 65536;
+    private const MAX_SERVICE_TOKEN_BYTES = 8192;
+    private const MAX_ACCESS_CLIENT_ID_BYTES = 512;
+    private const MAX_ACCESS_CLIENT_SECRET_BYTES = 4096;
+    private const TEAM_PATTERN = '/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/';
 
     private function getTunnel($uuid, string $role)
     {
@@ -137,7 +141,7 @@ class EnrollmentController extends ApiControllerBase
             return ['status' => 'failed', 'message' => gettext('Select an egress client tunnel.')];
         }
         $team = strtolower((string)$node->team);
-        if ($team === '' || preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $team) !== 1) {
+        if ($team === '' || preg_match(self::TEAM_PATTERN, $team) !== 1) {
             return ['status' => 'failed', 'message' => gettext('Configure a valid Cloudflare team name first.')];
         }
         return [
@@ -146,37 +150,65 @@ class EnrollmentController extends ApiControllerBase
         ];
     }
 
-    private function startRegistration($uuid, string $token, string $action)
+    private function startHandoff($uuid, string $payload, string $suffix, string $action)
     {
         $jobId = bin2hex(random_bytes(16));
-        $tokenPath = '/var/tmp/usque-enroll-' . $jobId . '.jwt';
-        $handle = @fopen($tokenPath, 'x+b');
-        if ($handle === false || !@chmod($tokenPath, 0600)) {
+        $handoffPath = '/var/tmp/usque-enroll-' . $jobId . '.' . $suffix;
+        $handle = @fopen($handoffPath, 'x+b');
+        if ($handle === false || !@chmod($handoffPath, 0600)) {
             if (is_resource($handle)) {
                 fclose($handle);
             }
-            @unlink($tokenPath);
+            @unlink($handoffPath);
             return ['status' => 'failed', 'message' => gettext('Unable to create the private enrollment handoff.')];
         }
 
-        $written = fwrite($handle, $token);
-        $tokenLength = strlen($token);
+        $length = strlen($payload);
+        $offset = 0;
+        while ($offset < $length) {
+            $written = fwrite($handle, substr($payload, $offset));
+            if ($written === false || $written === 0) {
+                break;
+            }
+            $offset += $written;
+        }
         $flushed = fflush($handle);
         fclose($handle);
-        unset($token);
-        if ($written !== $tokenLength || !$flushed) {
-            @unlink($tokenPath);
+        unset($payload);
+        if ($offset !== $length || !$flushed) {
+            @unlink($handoffPath);
             return ['status' => 'failed', 'message' => gettext('Unable to write the private enrollment handoff.')];
         }
 
         try {
             (new Backend())->configdpRun('usque ' . $action, [$jobId, strtolower($uuid)], true);
         } catch (\Throwable $error) {
-            @unlink($tokenPath);
+            @unlink($handoffPath);
             return ['status' => 'failed', 'message' => gettext('Unable to start the enrollment job.')];
         }
         return ['status' => 'started', 'job_id' => $jobId];
     }
+
+    private function startRegistration($uuid, string $token, string $action)
+    {
+        return $this->startHandoff($uuid, $token, 'jwt', $action);
+    }
+
+    private function singleLineValue($value, int $maximumBytes)
+    {
+        if (
+            !is_string($value) ||
+            $value === '' ||
+            strlen($value) > $maximumBytes ||
+            strpos($value, "\0") !== false ||
+            strpos($value, "\r") !== false ||
+            strpos($value, "\n") !== false
+        ) {
+            return null;
+        }
+        return $value;
+    }
+
 
     public function registerAction($uuid)
     {
@@ -202,6 +234,59 @@ class EnrollmentController extends ApiControllerBase
         }
         return $this->startRegistration($uuid, $token, 'client_register');
     }
+
+    public function serviceTokenRegisterAction($uuid)
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed'];
+        }
+        if ($this->getClientTunnel($uuid) === null) {
+            return ['status' => 'failed', 'message' => gettext('Select an egress client tunnel.')];
+        }
+        $registration = $this->getRegistrationState($uuid, 'client');
+        if (!$registration['can_register']) {
+            return ['status' => 'failed', 'message' => $registration['message']];
+        }
+        if ((string)$this->request->getPost('accept_tos') !== '1') {
+            return ['status' => 'failed', 'message' => gettext('Cloudflare Terms of Service must be accepted explicitly.')];
+        }
+
+        $organization = $this->singleLineValue($this->request->getPost('organization'), 63);
+        $clientId = $this->singleLineValue(
+            $this->request->getPost('auth_client_id'),
+            self::MAX_ACCESS_CLIENT_ID_BYTES
+        );
+        $clientSecret = $this->singleLineValue(
+            $this->request->getPost('auth_client_secret'),
+            self::MAX_ACCESS_CLIENT_SECRET_BYTES
+        );
+        if ($organization === null || preg_match(self::TEAM_PATTERN, strtolower($organization)) !== 1) {
+            return ['status' => 'failed', 'message' => gettext('Enter a valid Cloudflare organization team name.')];
+        }
+        if ($clientId === null || substr($clientId, -7) !== '.access') {
+            return ['status' => 'failed', 'message' => gettext('Enter a valid Cloudflare Access Client ID ending in .access.')];
+        }
+        if ($clientSecret === null) {
+            return ['status' => 'failed', 'message' => gettext('Enter a valid Cloudflare Access Client Secret.')];
+        }
+
+        $payload = json_encode([
+            'organization' => strtolower($organization),
+            'auth_client_id' => $clientId,
+            'auth_client_secret' => $clientSecret,
+        ], JSON_UNESCAPED_SLASHES);
+        unset($clientSecret);
+        if (!is_string($payload) || strlen($payload) > self::MAX_SERVICE_TOKEN_BYTES) {
+            return ['status' => 'failed', 'message' => gettext('The service-token enrollment parameters are too large.')];
+        }
+        return $this->startHandoff(
+            $uuid,
+            $payload,
+            'service-token',
+            'client_service_token_register'
+        );
+    }
+
 
     public function meshRegisterAction($uuid)
     {

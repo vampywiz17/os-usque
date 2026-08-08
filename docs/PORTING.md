@@ -49,3 +49,6 @@ checksum, stage QA, plist, and package creation checks. The resulting stripped
 PIE executable linked only to FreeBSD base-system libraries and reported
 `usque-nativetun` 0.8.1 with both native TUN client and optional Mesh node
 modes.
+
+The current 0.8.1 source pin includes the reviewed Cloudflare Access
+service-token registration CLI and its `quick-xml` lockfile dependency.

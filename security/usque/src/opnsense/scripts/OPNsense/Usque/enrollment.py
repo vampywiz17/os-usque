@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 BINARY = Path("/usr/local/bin/usque-nativetun")
@@ -26,8 +27,12 @@ UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 MAX_TOKEN_BYTES = 65536
+MAX_SERVICE_TOKEN_BYTES = 8192
+MAX_ACCESS_CLIENT_ID_BYTES = 512
+MAX_ACCESS_CLIENT_SECRET_BYTES = 4096
 TOKEN_TTL_SECONDS = 300
 MAX_CONFIG_BYTES = 1048576
+TEAM_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 def validate_job_id(value: str) -> str:
@@ -138,18 +143,16 @@ def allowed_spool_owners() -> set[int]:
     return owners
 
 
-def claim_browser_token(job_id: str, allowed_owners: set[int] | None = None) -> bytes:
-    path = SPOOL_DIR / f"usque-enroll-{validate_job_id(job_id)}.jwt"
+def claim_handoff(job_id: str, suffix: str, maximum_size: int, allowed_owners: set[int] | None = None) -> bytes:
+    path = SPOOL_DIR / f"usque-enroll-{validate_job_id(job_id)}.{suffix}"
     flags = os.O_RDONLY | os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-
     try:
         descriptor = os.open(path, flags)
     except OSError:
         path.unlink(missing_ok=True)
         raise
-
     try:
         metadata = os.fstat(descriptor)
         owners = allowed_spool_owners() if allowed_owners is None else allowed_owners
@@ -157,37 +160,89 @@ def claim_browser_token(job_id: str, allowed_owners: set[int] | None = None) -> 
             raise PermissionError("enrollment handoff is not a single regular file")
         if metadata.st_uid not in owners or metadata.st_mode & 0o077:
             raise PermissionError("enrollment handoff has unsafe ownership or permissions")
-        if metadata.st_size < 1 or metadata.st_size > MAX_TOKEN_BYTES:
+        if metadata.st_size < 1 or metadata.st_size > maximum_size:
             raise ValueError("enrollment handoff has an invalid size")
         if time.time() - metadata.st_mtime > TOKEN_TTL_SECONDS:
             raise ValueError("enrollment handoff has expired")
-        token = os.read(descriptor, MAX_TOKEN_BYTES + 1)
-        if len(token) != metadata.st_size or any(byte in token for byte in (0, 10, 13)):
-            raise ValueError("enrollment token must contain exactly one non-empty line")
-        return token
+        payload = os.read(descriptor, maximum_size + 1)
+        if len(payload) != metadata.st_size:
+            raise ValueError("enrollment handoff changed while reading")
+        return payload
     finally:
         os.close(descriptor)
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
+        path.unlink(missing_ok=True)
 
 
-def root_token_file(token: bytes) -> Path:
+def claim_browser_token(job_id: str, allowed_owners: set[int] | None = None) -> bytes:
+    token = claim_handoff(job_id, "jwt", MAX_TOKEN_BYTES, allowed_owners)
+    if any(byte in token for byte in (0, 10, 13)):
+        raise ValueError("enrollment token must contain exactly one non-empty line")
+    return token
+
+
+def validate_service_token_fields(payload: object) -> dict[str, str]:
+    expected = {"organization", "auth_client_id", "auth_client_secret"}
+    if not isinstance(payload, dict) or set(payload) != expected:
+        raise ValueError("service-token handoff has invalid fields")
+    values = {}
+    for field in expected:
+        value = payload.get(field)
+        if not isinstance(value, str) or not value:
+            raise ValueError("service-token handoff contains an invalid value")
+        if any(ord(character) in (0, 10, 13) for character in value):
+            raise ValueError("service-token values must each contain exactly one line")
+        values[field] = value
+    organization = values["organization"].lower()
+    if not TEAM_RE.fullmatch(organization):
+        raise ValueError("service-token organization is not a valid team name")
+    if len(values["auth_client_id"].encode()) > MAX_ACCESS_CLIENT_ID_BYTES:
+        raise ValueError("service-token Client ID is too long")
+    if not values["auth_client_id"].endswith(".access"):
+        raise ValueError("service-token Client ID must end with .access")
+    if len(values["auth_client_secret"].encode()) > MAX_ACCESS_CLIENT_SECRET_BYTES:
+        raise ValueError("service-token Client Secret is too long")
+    values["organization"] = organization
+    return values
+
+
+def claim_service_token(job_id: str, allowed_owners: set[int] | None = None) -> dict[str, str]:
+    raw = claim_handoff(job_id, "service-token", MAX_SERVICE_TOKEN_BYTES, allowed_owners)
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("service-token handoff is not valid UTF-8 JSON") from error
+    finally:
+        del raw
+    return validate_service_token_fields(decoded)
+
+
+def root_private_file(payload: bytes, prefix: str) -> Path:
     ensure_private_directory(STATE_DIR)
-    descriptor, name = tempfile.mkstemp(prefix=".jwt-", dir=STATE_DIR)
+    descriptor, name = tempfile.mkstemp(prefix=prefix, dir=STATE_DIR)
     try:
         os.fchmod(descriptor, 0o600)
-        view = memoryview(token)
+        view = memoryview(payload)
         while view:
             written = os.write(descriptor, view)
             if written == 0:
-                raise OSError("short write while securing enrollment token")
+                raise OSError("short write while securing enrollment data")
             view = view[written:]
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
     return Path(name)
+
+
+def root_token_file(token: bytes) -> Path:
+    return root_private_file(token, ".jwt-")
+
+
+def root_mdm_file(fields: dict[str, str]) -> Path:
+    root = ET.Element("dict")
+    for name in ("organization", "auth_client_id", "auth_client_secret"):
+        ET.SubElement(root, "key").text = name
+        ET.SubElement(root, "string").text = fields[name]
+    return root_private_file(ET.tostring(root, encoding="utf-8"), ".mdm-")
 
 
 def register(job_id: str, tunnel_id: str, role: str) -> int:
@@ -254,6 +309,41 @@ def register(job_id: str, tunnel_id: str, role: str) -> int:
                 private_token.unlink()
             except FileNotFoundError:
                 pass
+
+
+def register_service_token(job_id: str, tunnel_id: str) -> int:
+    job_id = validate_job_id(job_id)
+    tunnel_id = validate_tunnel_id(tunnel_id)
+    write_state(job_id, "claiming_token", "Claiming one-time Cloudflare Access service-token parameters.", tunnel_id)
+    private_mdm = None
+    try:
+        fields = claim_service_token(job_id)
+        private_mdm = root_mdm_file(fields)
+        for field in fields:
+            fields[field] = ""
+        del fields
+        ensure_private_directory(CONFIG_DIR)
+        config_path = CONFIG_DIR / f"{tunnel_id}.json"
+        if config_path.exists():
+            raise FileExistsError("a registration configuration already exists for this tunnel")
+        write_state(job_id, "registering", "Registering device through Cloudflare Access Service Auth.", tunnel_id)
+        command = [str(BINARY), "--config", str(config_path), "register", "--mdm-file", str(private_mdm), "--accept-tos"]
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120, check=False, env={**os.environ, "RUST_LOG": "info"})
+        if result.returncode != 0:
+            diagnostic = result.stdout.strip()[-3000:]
+            raise RuntimeError(diagnostic or f"registration exited with status {result.returncode}")
+        os.chmod(config_path, 0o600)
+        decoded = json.loads(config_path.read_text(encoding="utf-8"))
+        if decoded.get("role", "client") != "client":
+            raise RuntimeError("registration produced a configuration with the wrong role")
+        write_state(job_id, "completed", "Tunnel registration completed.", tunnel_id)
+        return 0
+    except Exception as error:
+        write_state(job_id, "failed", str(error), tunnel_id)
+        return 1
+    finally:
+        if private_mdm is not None:
+            private_mdm.unlink(missing_ok=True)
 
 
 def runtime_is_disabled(expected_owner: int = 0) -> tuple[bool, str]:
@@ -371,6 +461,8 @@ def main(argv: list[str]) -> int:
         return register(argv[2], argv[3], "client")
     if len(argv) == 4 and argv[1] == "register-mesh":
         return register(argv[2], argv[3], "mesh-node")
+    if len(argv) == 4 and argv[1] == "register-client-service-token":
+        return register_service_token(argv[2], argv[3])
     if len(argv) == 3 and argv[1] == "status":
         return status(argv[2])
     if len(argv) == 4 and argv[1] == "registration-status":
@@ -378,7 +470,8 @@ def main(argv: list[str]) -> int:
     if len(argv) == 4 and argv[1] == "delete-registration":
         return delete_registration(argv[2], argv[3])
     print(
-        "usage: enrollment.py register-client|register-mesh JOB_ID TUNNEL_UUID | "
+        "usage: enrollment.py register-client|register-client-service-token|register-mesh "
+        "JOB_ID TUNNEL_UUID | "
         "status JOB_ID | registration-status|delete-registration TUNNEL_UUID ROLE",
         file=sys.stderr,
     )

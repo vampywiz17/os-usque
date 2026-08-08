@@ -40,10 +40,14 @@ grep -Fq '"mesh-register"' "${enrollment_worker}" &&
     fail "Mesh registration must use the existing explicit Rust CLI contract"
 grep -Fq 'delete-registration' "${enrollment_worker}" ||
     fail "missing stopped-service credential deletion worker"
+grep -Fq '"--mdm-file"' "${enrollment_worker}" ||
+    fail "Access service-token registration must use the reviewed Rust MDM file contract"
 
 enrollment_actions="${plugin_dir}/src/opnsense/service/conf/actions.d/actions_usque.conf"
 grep -Fq '[mesh_register]' "${enrollment_actions}" ||
     fail "missing configd Mesh registration action"
+grep -Fq '[client_service_token_register]' "${enrollment_actions}" ||
+    fail "missing configd Access service-token registration action"
 grep -Fq '[delete_registration]' "${enrollment_actions}" ||
     fail "missing configd credential deletion action"
 grep -Fq 'acknowledge_linux_platform_claim' \
