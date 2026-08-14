@@ -362,7 +362,9 @@ def start(instance: dict) -> str:
     ]
     if instance["role"] == "client":
         command.append("--always-reconnect")
-    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
+    environment = os.environ.copy()
+    environment["NO_COLOR"] = "1"
+    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, env=environment)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         cleanup_interface(instance["id"])

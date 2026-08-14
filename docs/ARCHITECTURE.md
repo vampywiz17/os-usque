@@ -63,6 +63,10 @@ Syslog template namespace. OPNsense core owns the destination, file naming,
 rotation, querying, live view, export and clearing behavior. Instance tags keep
 concurrent tunnels distinguishable without creating one logfile per process.
 
+The service passes the standard `NO_COLOR=1` environment setting to supervised
+tunnel processes. The tracing layer therefore omits terminal ANSI sequences at
+the source; the plugin does not rewrite or parse log messages.
+
 ## OPNsense layers
 
 1. MVC model and API validate persistent configuration.

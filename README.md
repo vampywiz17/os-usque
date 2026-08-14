@@ -280,6 +280,11 @@ and retention policy. The process tag identifies the source instance, for
 example `usque-tun0` or `usque-tun1`.
 
 The plugin does not parse, reformat or duplicate the Rust client's records.
+Supervised processes receive the standard `NO_COLOR=1` environment setting,
+which the engine's `tracing-subscriber` honors natively. This prevents
+terminal ANSI escape sequences from entering syslog without changing message
+content, timestamps or requiring an engine patch.
+
 `usque-nativetun` remains responsible for their content and emits at its
 default informational level. The pinned build includes an observational
 `QUIC path diagnostics` record every 60 seconds with the active path, RTT,
