@@ -89,6 +89,11 @@ class ServiceLifecycleTests(unittest.TestCase):
         self.assertIn("--always-reconnect", command)
         self.assertEqual(message, "tun0: started")
 
+        self.assertEqual(command[command.index("-l") + 1], "local3")
+        self.assertEqual(command[command.index("-s") + 1], "info")
+        self.assertEqual(command[command.index("-T") + 1], "usque-tun0")
+        self.assertNotIn("RUST_LOG", run.call_args.kwargs.get("env", {}))
+
     def test_start_uses_mesh_node_subcommand_without_redundant_reconnect_flag(self):
         instance = dict(self.instance)
         instance["role"] = "mesh-node"

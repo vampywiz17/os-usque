@@ -125,7 +125,8 @@ The current foundation contains:
   `daemon(8)` process per enabled instance;
 - an Apply action that renders runtime metadata and reconciles all instances;
 - pinned OPNsense 26.7 validation and packaging helpers;
-- a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.8.3.
+- OPNsense-native local syslog collection and log viewing;
+- a reproducible, checksummed FreeBSD port for `usque-nativetun` 0.8.3 with periodic QUIC path diagnostics.
 
 Interface assignment automation and Mesh return-route reconciliation are implemented. Both enrollment paths create the root-only per-instance configuration.
 
@@ -267,8 +268,24 @@ The plugin renders a non-secret instance manifest and reconciles the
 running processes. Every instance is launched by FreeBSD `daemon(8)` with
 separate supervisor and child PID files, a five-second crash restart delay and
 the Rust client's own `--always-reconnect` transport recovery. Output is sent
-to the OPNsense system log under an instance-specific `usque-tunN` syslog tag.
+through the standard VPN `local3` syslog facility under an instance-specific
+`usque-tunN` tag.
 
+### Logging
+
+Open **VPN > usque > Log File** to search, filter, follow live, export or clear
+the combined tunnel log. OPNsense stores it under
+`/var/log/usque/usque_YYYYMMDD.log` and applies its normal local-log rotation
+and retention policy. The process tag identifies the source instance, for
+example `usque-tun0` or `usque-tun1`.
+
+The plugin does not parse, reformat or duplicate the Rust client's records.
+`usque-nativetun` remains responsible for their content and emits at its
+default informational level. The pinned build includes an observational
+`QUIC path diagnostics` record every 60 seconds with the active path, RTT,
+congestion window, delivery rate, PMTU, packet/byte counters and actual
+userspace pacing waits. These records do not change transport behavior and do
+not contain registration credentials.
 The generated manifest contains only UUIDs, names, roles and TUN interface
 names. Registration credentials remain in root-owned mode-0600 files under
 `/usr/local/etc/usque/instances`. The lifecycle worker revalidates ownership,

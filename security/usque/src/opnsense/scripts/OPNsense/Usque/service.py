@@ -355,7 +355,7 @@ def start(instance: dict) -> str:
     write_interface_state(instance["id"], instance["interface"])
     subcommand = "mesh-node" if instance["role"] == "mesh-node" else "nativetun"
     command = [
-        str(DAEMON), "-c", "-f", "-r", "-R", "5", "-S", "-l", "daemon", "-s", "info",
+        str(DAEMON), "-c", "-f", "-r", "-R", "5", "-S", "-l", "local3", "-s", "info",
         "-P", str(supervisor), "-p", str(child),
         "-T", f'usque-{instance["interface"]}', str(BINARY), subcommand,
         "--config", str(instance["config"]), "--interface-name", instance["interface"],

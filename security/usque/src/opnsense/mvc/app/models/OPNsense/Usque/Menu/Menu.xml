@@ -2,6 +2,7 @@
     <VPN>
         <Usque order="95" VisibleName="usque" cssClass="fa fa-lock fa-fw">
             <General order="10" url="/ui/usque"/>
+            <LogFile order="20" VisibleName="Log File" url="/ui/diagnostics/log/core/usque"/>
         </Usque>
     </VPN>
 </menu>

@@ -4,6 +4,8 @@
         <patterns>
             <pattern>ui/usque/*</pattern>
             <pattern>api/usque/*</pattern>
+            <pattern>ui/diagnostics/log/core/usque/*</pattern>
+            <pattern>api/diagnostics/log/core/usque/*</pattern>
         </patterns>
     </page-services-usque>
 </acl>

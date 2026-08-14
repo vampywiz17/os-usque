@@ -49,13 +49,19 @@ overwriting or controlling another. Both roles may run concurrently.
 /usr/local/etc/usque/instances.json           non-secret generated manifest
 /var/run/usque/<uuid>.supervisor.pid          locked daemon(8) supervisor PID
 /var/run/usque/<uuid>.child.pid               locked Rust child PID
-syslog tag usque-tunN                         tunnel process output
+syslog local3 / tag usque-tunN                tunnel process output
+/var/log/usque/usque_YYYYMMDD.log             OPNsense-managed local log
 ```
 
 The instance credential path is created by enrollment and is never copied into
 the OPNsense model or generated manifest. FreeBSD `daemon(8)` owns PID locking,
 crash supervision and syslog delivery; OPNsense owns boot ordering and
 configuration reconciliation through rc.d and configd.
+
+The plugin contributes only the standard `f_local_usque` filter to OPNsense's
+Syslog template namespace. OPNsense core owns the destination, file naming,
+rotation, querying, live view, export and clearing behavior. Instance tags keep
+concurrent tunnels distinguishable without creating one logfile per process.
 
 ## OPNsense layers
 

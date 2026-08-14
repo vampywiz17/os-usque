@@ -76,6 +76,21 @@ grep -Fq "{{ lang._('Apply changes') }}" "${service_view}" ||
 if grep -Fqi 'Apply and start tunnels' "${service_view}"; then
     fail "service reconcile action must not imply start-only behavior"
 fi
+syslog_filter="${plugin_dir}/src/opnsense/service/templates/OPNsense/Syslog/local/usque.conf"
+[ -f "${syslog_filter}" ] || fail "missing OPNsense local syslog filter"
+grep -Fq 'filter f_local_usque' "${syslog_filter}" ||
+    fail "usque syslog filter must use the OPNsense local-filter naming contract"
+grep -Fq 'program("^usque-tun[0-9]{1,3}$" type("pcre"))' "${syslog_filter}" ||
+    fail "usque syslog filter must accept only validated instance tags"
+grep -Fq '"-l", "local3"' "${plugin_dir}/src/opnsense/scripts/OPNsense/Usque/service.py" ||
+    fail "usque tunnel output must use the standard VPN syslog facility"
+grep -Fq 'url="/ui/diagnostics/log/core/usque"' \
+    "${plugin_dir}/src/opnsense/mvc/app/models/OPNsense/Usque/Menu/Menu.xml" ||
+    fail "missing OPNsense-native usque log viewer menu entry"
+grep -Fq 'ui/diagnostics/log/core/usque/*' \
+    "${plugin_dir}/src/opnsense/mvc/app/models/OPNsense/Usque/ACL/ACL.xml" ||
+    fail "missing usque log viewer ACL"
+
 
 find "${repo_dir}" -path "${repo_dir}/.build" -prune -o \
     -type f -name '*.sh' -exec sh -n {} \;
